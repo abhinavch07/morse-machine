@@ -1,0 +1,12 @@
+# Python virtual environment
+.venv/
+
+# Python cache and test cache
+__pycache__/
+.pytest_cache/
+
+# Generated audio files
+*.wav
+
+# macOS folder metadata
+.DS_Store
