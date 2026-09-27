@@ -51,13 +51,14 @@ CHAR_TO_MORSE = {
     "7": "--...",
     "8": "---..",
     "9": "----.",
-    # Punctuation from the ASOC test
+    # Punctuation from the ASOC test, plus "/" which the Koch trainer needs
     ".": ".-.-.-",   # full stop
     ",": "--..--",   # comma
     ";": "-.-.-.",   # semicolon
     "=": "-...-",    # break sign (same code as <BT>)
     "-": "-....-",   # hyphen
     "?": "..--..",   # question mark
+    "/": "-..-.",    # slash (fraction bar), used by the Koch order
     # Prosigns, written in text inside angle brackets
     "<AR>": ".-.-.",   # end of message
     "<SK>": "...-.-",  # end of contact

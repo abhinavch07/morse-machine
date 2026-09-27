@@ -10,3 +10,6 @@ __pycache__/
 
 # macOS folder metadata
 .DS_Store
+
+# Trainer progress and other local data
+data/

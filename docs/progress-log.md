@@ -63,4 +63,34 @@ Learned:
 Next:
 - Live audio playback, or start the Koch trainer in trainer/.
 
+## 2026-09-27 Phase 1, session 3: Koch trainer
+
+Built:
+- trainer/koch.py: the LCWO Koch order (41 characters, 40 lessons) and
+  lesson_characters(n) for the first n+1 characters. Order checked and
+  confirmed against LCWO.
+- morse_core/codes.py: added "/" (-..-.) which the Koch order needs.
+- trainer/scoring.py: LCWO style Levenshtein scoring with a per character
+  error count and a list of wrong characters.
+- trainer/groups.py: random groups of five, about one minute in total, with the
+  newest character given double weight.
+- trainer/progress.py: save and load data/progress.json, the 90 percent pass
+  rule that moves the start lesson up, and a weakest characters summary.
+- trainer/practice.py: the terminal round. Plays a temp WAV with macOS afplay
+  and deletes it, reads your copy, scores and saves it.
+- Tests: test_koch, test_scoring, test_groups, test_progress. 21 new checks,
+  59 total pass.
+- data/ added to .gitignore so progress stays local.
+
+Learned:
+- The Koch method adds one character per lesson at full character speed, and
+  Farnsworth spacing gives the ears time between characters.
+- Levenshtein scoring is fair because one missed character does not wreck the
+  rest of the line, unlike a strict position by position match.
+
+Next:
+- Try a real practice round with sound, then look at live audio playback or a
+  richer fist analyser.
+
+
 
