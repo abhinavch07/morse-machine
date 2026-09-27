@@ -38,3 +38,29 @@ Learned:
 Next:
 - Add the timing engine (dit length from WPM, Farnsworth spacing).
 
+## 2026-09-27 Phase 1, session 2: timing engine and WAV output
+
+Built:
+- morse_core/timing.py: dit_length_ms, compute_timing (standard and
+  Farnsworth), text_to_key_events (list of key_down and duration_ms with no
+  trailing gap), and total_duration_ms (adds one final word gap).
+- morse_core/audio.py: sine sidetone at 600 Hz, 44100 sample rate, 16-bit mono
+  WAV via the standard library wave module, with a 5 ms raised cosine fade in
+  and out on every tone to kill clicks. No numpy needed.
+- morse_core/make_wav.py: command line tool, for example
+  python -m morse_core.make_wav "PARIS PARIS" --wpm 20 --effective 8 --out paris.wav
+- tests/test_timing.py and tests/test_audio.py: 13 new checks. All 38 tests
+  pass.
+
+Learned:
+- The PARIS word slot is 50 units. That is why 20 WPM standard gives 3000 ms
+  and 20/8 Farnsworth gives 7500 ms for one word.
+- Farnsworth keeps the characters fast (a dit stays 60 ms at 20 WPM) but
+  stretches the gaps: letter gap about 891 ms and word gap about 2078 ms.
+- A raised cosine fade of a few ms on each tone removes the click you hear when
+  a sine wave starts or stops abruptly.
+
+Next:
+- Live audio playback, or start the Koch trainer in trainer/.
+
+
