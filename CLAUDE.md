@@ -79,8 +79,9 @@ Each phase ends with a clear "done when" check. Morse practice (Phase 0) runs ev
 ### Phase 2: First hardware, straight key and sidetone
 - DIY straight key (wood base, brass strip or hacksaw blade, screw contacts).
 - ESP32 reads the key with debounce and plays sidetone on buzzer or small speaker, with LED.
-- Learn: Ohm's law, pull-up resistors, contact bounce, using a multimeter, first soldering.
-- Done when: pressing the key gives a clean tone and the ESP32 prints decoded characters over serial.
+- 1.3 inch OLED screen (SH1106 driver, I2C, 128x64) shows decoded text and WPM. Use the U8g2 library. Note: the driver is SH1106, not SSD1306.
+- Learn: Ohm's law, pull-up resistors, contact bounce, I2C, using a multimeter, first soldering.
+- Done when: pressing the key gives a clean tone, and the decoded characters show on the OLED and over serial.
 
 ### Phase 3: Internet Morse
 - `relay`: WebSocket server that forwards key-down and key-up events with timestamps.
@@ -119,19 +120,24 @@ Each phase ends with a clear "done when" check. Morse practice (Phase 0) runs ev
 Prices are rough guesses. Check current prices before buying.
 | Part | Approx Rs | Phase |
 |---|---|---|
-| ESP32 DevKit board | 450 | 2 |
-| Two breadboards (830 point) and jumper wires | 300 | 2 |
-| Resistor kit, LEDs, active and passive buzzers | 200 | 2 |
+| ESP32 DevKit V1, 30 pin, CP2102 USB chip | 400 | 2 |
+| 1.3 inch OLED, 128x64, I2C, 4 pin, SH1106 | 300 | 2 |
+| Two breadboards (830 point) and jumper wires (male-male and male-female) | 300 | 2 |
+| Resistor kit and 5 mm LEDs | 150 | 2 |
+| Buzzers, 2 passive and 1 active | 50 | 2 |
 | Small 8 ohm speaker and PAM8403 amplifier module | 120 | 2 |
 | Microswitches and tactile switches | 80 | 2, 4 |
-| 3.5 mm jacks and cable | 80 | 2, 4 |
-| Soldering iron kit (25 to 40 W, stand, solder, flux) | 500 | 2 |
-| Basic digital multimeter | 400 | 2 |
+| Two 10k potentiometers (speed, volume) | 40 | 4 |
+| 3.5 mm stereo jacks and cable | 80 | 2, 4 |
+| Soldering iron kit (25 W, stand, solder, flux, desoldering pump) | 450 | 2 |
+| Basic digital multimeter (DT830 type) | 300 | 2 |
 | Perfboard and header pins | 100 | 2, 4 |
 | Wood, brass strip or hacksaw blade, screws, springs | 150 | 2, 4 |
 | MAX9814 microphone module | 200 | 5 |
-| Total | about 2,580 | |
-Buy an ESP32 board with a CH340 or CP2102 USB chip, and a USB data cable (not charge only) that fits its port.
+| USB data cable (not charge only), fitting the ESP32 port | 120 | 2 |
+| Total | about 2,840 | |
+The owner's Mac has both USB-A and USB-C ports, so any cable that matches the ESP32 port and one of these works. It must be a data cable.
+Parts are bought online.
 Phase 8 parts are not in this budget and will be planned after licensing.
 
 ## Definition of done for any task
