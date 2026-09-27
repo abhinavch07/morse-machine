@@ -92,5 +92,21 @@ Next:
 - Try a real practice round with sound, then look at live audio playback or a
   richer fist analyser.
 
+## 2026-09-27 Session wrap and plan update
+
+State:
+- Phase 1 software is complete and pushed to GitHub: encode and decode, the
+  timing engine (standard and Farnsworth), WAV output, and the Koch trainer.
+  59 tests pass.
+- Updated CLAUDE.md for Phase 2 hardware. Added a 1.3 inch SH1106 OLED (I2C,
+  128x64, U8g2 library) to the goal and done-when, with a note that the driver
+  is SH1106 and not SSD1306. Revised the parts list to an ESP32 DevKit V1 with
+  CP2102, two 10k pots, a USB data cable line, new total about Rs 2,840.
+
+Next:
+- Phase 0 daily ear practice: python -m trainer.practice.
+- When ready for more code: live audio playback or a fist analyser.
+- Phase 2 hardware once the parts arrive. First soldering and I2C for the OLED.
+
 
 
