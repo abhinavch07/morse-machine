@@ -17,7 +17,13 @@ The owner (Abhinav) is a beginner in electronics and Morse. Treat every task as 
 - The owner has NO amateur radio licence yet. Do not write code or give steps that key a real radio transmitter or an antenna until the owner confirms a licence and states its grade in this file.
 - Licence status: NOT LICENSED (update this line after the licence is issued)
 - Any RF circuit work before licensing is tested into a dummy load only.
-- No mains (230 V AC) circuits. USB, batteries or small DC adapters only.
+- No mains (230 V AC) circuits. USB, batteries or small DC adapters only. Using a normal mains tool like the soldering iron is fine.
+
+## Power
+- Everything runs from USB 5 V: the Mac, a phone charger or a power bank. No loose lithium cells.
+- ESP32 onboard regulator gives 3.3 V. OLED on 3.3 V. PAM8403 on the 5 V (VIN) pin. Total well under 600 mA.
+- Only one power source at a time.
+- Very loud speaker volume can cause ESP32 resets. Keep volume moderate.
 
 ## Dev machine
 - Intel MacBook Pro (x86_64), macOS, zsh shell.
@@ -80,8 +86,10 @@ Each phase ends with a clear "done when" check. Morse practice (Phase 0) runs ev
 - DIY straight key (wood base, brass strip or hacksaw blade, screw contacts).
 - ESP32 reads the key with debounce and plays sidetone on buzzer or small speaker, with LED.
 - 1.3 inch OLED screen (SH1106 driver, I2C, 128x64) shows decoded text and WPM. Use the U8g2 library. Note: the driver is SH1106, not SSD1306.
-- Learn: Ohm's law, pull-up resistors, contact bounce, I2C, using a multimeter, first soldering.
-- Done when: pressing the key gives a clean tone, and the decoded characters show on the OLED and over serial.
+- Input order: first a tactile push button on the breadboard, then the DIY straight key, then a touch key.
+- Touch key: use the ESP32 built-in capacitive touch on GPIO 32 (T9), with a pad of foil, copper tape or a coin. No extra module. The touch reading drops when touched. Calibrate the threshold at start up, because it changes with humidity and wire length. Add debounce. Avoid touch pins that are strapping pins (GPIO 0, 2, 12, 15).
+- Learn: Ohm's law, pull-up resistors, contact bounce, I2C, capacitive touch, using a multimeter, first soldering.
+- Done when: pressing the key (button, straight key or touch pad) gives a clean tone, and the decoded characters show on the OLED and over serial.
 
 ### Phase 3: Internet Morse
 - `relay`: WebSocket server that forwards key-down and key-up events with timestamps.
@@ -92,6 +100,7 @@ Each phase ends with a clear "done when" check. Morse practice (Phase 0) runs ev
 ### Phase 4: Iambic paddle and keyer
 - Design and build a DIY dual lever paddle (microswitches or springy metal contacts).
 - Firmware iambic keyer, mode A and mode B, with dot and dash memory. Speed set by a potentiometer.
+- Touch paddle as a second paddle: two touch pads side by side on GPIO 32 (dit, T9) and GPIO 33 (dah, T8), using the same calibration code as the Phase 2 touch key. The keyer logic must not care which paddle is used.
 - Done when: the paddle sends clean, well timed characters at 15 WPM.
 
 ### Phase 5: Receive side and tone decoder
@@ -125,19 +134,20 @@ Prices are rough guesses. Check current prices before buying.
 | Two breadboards (830 point) and jumper wires (male-male and male-female) | 300 | 2 |
 | Resistor kit and 5 mm LEDs | 150 | 2 |
 | Buzzers, 2 passive and 1 active | 50 | 2 |
-| Small 8 ohm speaker and PAM8403 amplifier module | 120 | 2 |
+| Small 8 ohm speaker and PAM8403 amplifier module with built-in volume knob | 110 | 2 |
 | Microswitches and tactile switches | 80 | 2, 4 |
-| Two 10k potentiometers (speed, volume) | 40 | 4 |
+| One 10k potentiometer (keyer speed, volume is on the PAM8403) | 20 | 4 |
 | 3.5 mm stereo jacks and cable | 80 | 2, 4 |
-| Soldering iron kit (25 W, stand, solder, flux, desoldering pump) | 450 | 2 |
+| Soldering iron kit (25 W fixed, stand, solder, flux, desoldering pump) | 450 | 2 |
 | Basic digital multimeter (DT830 type) | 300 | 2 |
-| Perfboard and header pins | 100 | 2, 4 |
+| Perfboard 5 x 7 cm (3, one for soldering practice) and header pins | 100 | 2, 4 |
 | Wood, brass strip or hacksaw blade, screws, springs | 150 | 2, 4 |
 | MAX9814 microphone module | 200 | 5 |
 | USB data cable (not charge only), fitting the ESP32 port | 120 | 2 |
-| Total | about 2,840 | |
+| Touch pads: foil, copper tape or a coin | 0 | 2, 4 |
+| Total | about 2,810 | |
 The owner's Mac has both USB-A and USB-C ports, so any cable that matches the ESP32 port and one of these works. It must be a data cable.
-Parts are bought online.
+Parts were ordered online on 28 Sep 2026.
 Phase 8 parts are not in this budget and will be planned after licensing.
 
 ## Definition of done for any task
