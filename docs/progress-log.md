@@ -132,3 +132,31 @@ Learned:
 
 Next:
 - Wire a tactile push button on the breadboard and read it with debounce.
+
+## 2026-10-02 Phase 2 session 1 step 5: Morse on the onboard LED
+
+Built:
+- firmware/lib/morse: a small C++ Morse library that copies the rules of
+  morse_core. Same table (letters, figures, ASOC punctuation and /), dit =
+  1200 / WPM, dah 3 units, gaps of 1, 3 and 7 units. No Farnsworth and no
+  prosigns yet.
+- firmware/test/test_morse: 8 PlatformIO unit tests that run on the Mac with
+  pio test -e native. They check the same numbers as the Python tests: dit
+  60 ms at 20 WPM and 240 ms at 5 WPM, V is ...- and U is ..-, PARIS at
+  20 WPM is 3000 ms. All 8 pass. The 59 Python tests still pass.
+- main.cpp now blinks "VU" at 5 WPM on GPIO 2, waits 2 seconds and repeats,
+  printing "V ...-" and "U ..-" over serial. The ESP32 build passes.
+- Tested on real hardware: the native tests pass on the Mac, and after the
+  upload from VS Code the blue LED on GPIO 2 blinks VU correctly.
+
+Learned:
+- A library with no Arduino code in it can be tested on the Mac, which is much
+  faster than uploading to the board each time.
+- C++ on the ESP32 has no exceptions, so bad input returns 0 or nullptr where
+  Python would raise an error.
+
+Next:
+- Wire a tactile push button on the breadboard and read it with debounce.
+- Before the Phase 2 decoder work, add the prosigns AR, SK, BT and KN to the
+  C++ library, with tests, so it matches morse_core. BT shares -...- with "=",
+  and Python decodes that code to "=", so the C++ decoder must do the same.
