@@ -110,3 +110,23 @@ Next:
 
 
 
+
+## 2026-10-02 Phase 2 session 1: first ESP32 program
+
+Built:
+- PlatformIO project in firmware/ for the DOIT ESP32 DevKit V1 (Arduino
+  framework). Upload and monitor port /dev/cu.usbserial-0001 at 115200 baud.
+- firmware/src/main.cpp prints a hello line, then blinks the onboard blue LED
+  on GPIO 2 (500 ms on, 500 ms off) and prints "LED on" and "LED off".
+- .pio/ added to .gitignore. The build passes (RAM 6.6 percent, flash 20.5
+  percent). Upload is done by hand from VS Code.
+
+Learned:
+- setup() runs once at power up or reset. loop() then runs forever.
+- The serial monitor speed must match Serial.begin(), or the text is garbage.
+- delay() freezes the whole program. That is fine for a blink but not for
+  reading a key, so later sessions will switch to millis() timing.
+
+Next:
+- Upload from VS Code and watch the serial monitor.
+- Then wire a tactile push button on the breadboard and read it with debounce.

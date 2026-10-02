@@ -13,3 +13,6 @@ __pycache__/
 
 # Trainer progress and other local data
 data/
+
+# PlatformIO build output
+.pio/
