@@ -160,3 +160,26 @@ Next:
 - Before the Phase 2 decoder work, add the prosigns AR, SK, BT and KN to the
   C++ library, with tests, so it matches morse_core. BT shares -...- with "=",
   and Python decodes that code to "=", so the C++ decoder must do the same.
+
+## 2026-10-02 Phase 2 session 1 step 7: external LED
+
+Built:
+- Added a pin map to CLAUDE.md and docs/hardware-notes.md: LED 26,
+  sidetone 25, key 27, touch 32 and 33, paddle 18 and 19, OLED 21 and 22,
+  speed pot 34, microphone 35. Notes on pins to avoid and on ADC1.
+- main.cpp blinks "VU" on the onboard LED (GPIO 2) and the external LED
+  (GPIO 26) at the same time. Pin names are constants that match the pin map.
+  The ESP32 build and the 8 native tests pass.
+- Tested on real hardware: both LEDs blink VU together. The external LED is
+  yellow with a 220 ohm resistor, about 6 mA. Circuit noted in
+  docs/hardware-notes.md.
+
+Learned:
+- Strapping pins (0, 2, 12, 15) are read at power up to choose the boot mode,
+  so inputs go elsewhere. GPIO 1 and 3 carry the USB serial link.
+- Pins on ADC2 cannot read analog values while WiFi is on, so the pot and the
+  microphone go on ADC1 pins 34 and 35.
+
+Next:
+- Wire a tactile push button on GPIO 27 and read it with debounce.
+- Before the Phase 2 decoder work, add the prosigns to the C++ library.

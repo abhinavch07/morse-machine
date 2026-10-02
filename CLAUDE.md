@@ -25,6 +25,25 @@ The owner (Abhinav) is a beginner in electronics and Morse. Treat every task as 
 - Only one power source at a time.
 - Very loud speaker volume can cause ESP32 resets. Keep volume moderate.
 
+## Pin map
+| Function | GPIO | Notes |
+|---|---|---|
+| LED | 26 | |
+| Sidetone | 25 | |
+| Key input | 27 | INPUT_PULLUP, key to GND |
+| Touch key and touch paddle dit | 32 | T9 |
+| Touch paddle dah | 33 | T8 |
+| Paddle dit | 18 | |
+| Paddle dah | 19 | |
+| OLED SDA | 21 | |
+| OLED SCL | 22 | |
+| Speed pot | 34 | input only, ADC1 |
+| Microphone | 35 | input only, ADC1 |
+- Avoid GPIO 0, 2, 12 and 15 for inputs. They are strapping pins that set the boot mode.
+- Avoid GPIO 1 and 3. They are the USB serial link to the Mac.
+- GPIO 34 and 35 are input only. They use ADC1, so they still work when WiFi is on.
+- The onboard blue LED is on GPIO 2. It is fine as an output.
+
 ## Dev machine
 - Intel MacBook Pro (x86_64), macOS, zsh shell.
 - Python 3.13 installed from python.org. Run it as `python3.13`. Plain `python3` may point to the old macOS Python 3.9, so do not use it.
