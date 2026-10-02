@@ -35,3 +35,14 @@ ESP32 DevKit V1, 30 pin. The same table is in CLAUDE.md. Keep both in step.
 - Current: about (3.3 V minus 2 V across the LED) / 220 ohm, which is about
   6 mA. Bright enough and well within what one GPIO pin can supply.
 - Tested 2026-10-02: blinks VU together with the onboard LED on GPIO 2.
+
+### Push button key on GPIO 27
+- Parts: one 4-leg tactile push button. No resistor, because the ESP32 has a
+  pull-up resistor inside.
+- Placement: across the centre gap of the breadboard, legs in rows 58 and 60.
+- Wiring: GPIO 27 to row 58, row 60 to GND.
+- Code: pinMode INPUT_PULLUP, so the pin reads HIGH when open and LOW when
+  pressed. 10 ms debounce in software.
+- Tested 2026-10-02: both LEDs light while held, exactly one line printed per
+  press. Firm quick taps 35 to 55 ms, normal presses 77 to 85 ms, a long
+  press 226 ms.

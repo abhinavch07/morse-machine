@@ -183,3 +183,29 @@ Learned:
 Next:
 - Wire a tactile push button on GPIO 27 and read it with debounce.
 - Before the Phase 2 decoder work, add the prosigns to the C++ library.
+
+## 2026-10-02 Phase 2 session 1 step 8: push button key
+
+Built:
+- main.cpp reads a push button on GPIO 27 (KEY_PIN) with INPUT_PULLUP, the
+  other side of the button to GND. LOW means pressed.
+- 10 ms debounce using millis(). While the button is held both LEDs (GPIO 2
+  and 26) are on. On release it prints the hold time, like "key down 85 ms".
+- VU blinking is stopped, but sendText() stays in the file for later.
+- The ESP32 build and the 8 native tests pass.
+- Tested on real hardware: both LEDs light while the button is held, and
+  there is exactly one line per press, so the debounce works. Firm quick taps
+  read 35 to 55 ms, normal presses 77 to 85 ms, a long press 226 ms. Wiring
+  noted in docs/hardware-notes.md.
+
+Learned:
+- INPUT_PULLUP connects a resistor inside the ESP32 from the pin to 3.3 V, so
+  the pin reads HIGH when the button is open and LOW when it is pressed.
+- A metal contact bounces for a few ms. Waiting for the reading to stay the
+  same for 10 ms turns the bounces into one clean press.
+- loop() with no delay() runs thousands of times a second, so it never misses
+  a press. This is why the key code uses millis() and not delay().
+
+Next:
+- Then the sidetone on GPIO 25.
+- Before the Phase 2 decoder work, add the prosigns to the C++ library.
