@@ -120,6 +120,9 @@ Built:
   on GPIO 2 (500 ms on, 500 ms off) and prints "LED on" and "LED off".
 - .pio/ added to .gitignore. The build passes (RAM 6.6 percent, flash 20.5
   percent). Upload is done by hand from VS Code.
+- Tested on real hardware: the upload from VS Code worked, the blue LED on
+  GPIO 2 blinks, and the serial monitor shows the hello line and the
+  "LED on" and "LED off" messages.
 
 Learned:
 - setup() runs once at power up or reset. loop() then runs forever.
@@ -128,5 +131,4 @@ Learned:
   reading a key, so later sessions will switch to millis() timing.
 
 Next:
-- Upload from VS Code and watch the serial monitor.
-- Then wire a tactile push button on the breadboard and read it with debounce.
+- Wire a tactile push button on the breadboard and read it with debounce.
