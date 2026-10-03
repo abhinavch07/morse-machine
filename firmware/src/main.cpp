@@ -1,6 +1,6 @@
-// Phase 2, Session 2, Step 11: clean sine wave sidetone from the DAC.
-// While the button on GPIO 27 is held, a 600 Hz sine tone with a 5 ms fade in
-// and fade out plays on GPIO 25 (DAC1), and both LEDs are on. On each release
+// Phase 2, Session 2, Step 12: brighter sidetone with harmonics.
+// While the button on GPIO 27 is held, a 600 Hz tone with a 5 ms fade in and
+// fade out plays on GPIO 25 (DAC1), and both LEDs are on. On each release
 // the time it was held is printed over serial.
 
 #include <Arduino.h>
@@ -17,6 +17,9 @@ const int SIDETONE_PIN = 25;             // DAC1, to PAM8403 input L
 // Sidetone, from the timing spec in CLAUDE.md
 const float SIDETONE_HZ = 600;
 const float RAMP_MS = 5;                 // fade in and fade out, stops clicks
+
+// Tone colour: TONE_SOFT (pure sine), TONE_BRIGHT or TONE_SHARP.
+const ToneShape TONE_PRESET = TONE_SHARP;
 
 // A hardware timer asks for one new DAC value 40,000 times a second.
 const int SAMPLE_RATE_HZ = 40000;
@@ -130,7 +133,8 @@ void setup() {
     delay(4);
   }
 
-  sidetone.begin(SIDETONE_HZ, SAMPLE_RATE_HZ, RAMP_MS);
+  // Builds the wave table once, here, never inside the interrupt.
+  sidetone.begin(SIDETONE_HZ, SAMPLE_RATE_HZ, RAMP_MS, TONE_PRESET);
   sampleTimer = timerBegin(SAMPLE_TIMER, TIMER_DIVIDER, true);
   timerAttachInterrupt(sampleTimer, &onSampleTimer, false);  // false: level, the only kind this core supports
   timerAlarmWrite(sampleTimer, TIMER_TICKS, true);  // true: repeat forever

@@ -320,7 +320,38 @@ Learned:
   click that a sudden start or stop makes.
 
 Next:
-- A slightly brighter tone, closer to the old square wave. Details to come.
 - Maybe attach the timer with ESP_INTR_FLAG_IRAM so the tone keeps playing
   while flash is busy. Check the whole interrupt chain first.
+- Before the Phase 2 decoder work, add the prosigns to the C++ library.
+
+## 2026-10-03 Phase 2 session 2 step 12: brighter sidetone with harmonics
+
+Built:
+- lib/sidetone: three tone presets, TONE_SOFT (pure sine), TONE_BRIGHT
+  (1.0 x fundamental + 0.25 x 3rd + 0.10 x 5th) and TONE_SHARP (1.0 + 0.33 x
+  3rd + 0.20 x 5th). begin() adds the waves, finds the peak and scales the
+  table so the peak is exactly 127, so 128 plus any entry stays in 1 to 255.
+- main.cpp: one constant, TONE_PRESET = TONE_BRIGHT, picks the preset. The
+  table is built once in setup() and stays in RAM. The 5 ms fade, the DAC,
+  600 Hz and the IRAM-safe interrupt are unchanged. Checked in the built
+  firmware: the interrupt code is still in IRAM and calls nothing in flash.
+- Native tests now run every check for all three presets: table inside 0 to
+  255 with a peak of exactly 127, the right amount of 3rd and 5th harmonic,
+  silence is 128, the fade in starts at 128, the fade out ends at 128, and
+  one second has 600 waves. All 16 native tests pass. The ESP32 build passes.
+- Tested on real hardware: all three presets tried. Keeping TONE_SHARP, so
+  line 22 of main.cpp is now TONE_PRESET = TONE_SHARP. The fade is still
+  smooth with no speaker clicks. Choice noted in docs/hardware-notes.md.
+
+Learned:
+- Harmonics are extra waves at whole number multiples of the pitch. They do
+  not change the note, they change its colour. More high harmonics sound
+  brighter.
+- A square wave is a sine plus 1/3 of the 3rd, 1/5 of the 5th and so on.
+  TONE_SHARP is close to the start of that recipe.
+- Odd harmonics in this phase flatten the top of the wave, so the peak gets
+  lower (0.85 for BRIGHT, 0.93 for SHARP). After scaling, the 600 Hz part is
+  about 1.18 and 1.08 times bigger, so the tone is also a little louder.
+
+Next:
 - Before the Phase 2 decoder work, add the prosigns to the C++ library.

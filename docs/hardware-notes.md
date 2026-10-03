@@ -94,3 +94,9 @@ ESP32 DevKit V1, 30 pin. The same table is in CLAUDE.md. Keep both in step.
   speaker. A very faint hiss when silent, from the 8 bit DAC, fine for now.
   The only click is the tactile button's own mechanical click, confirmed with
   the volume turned fully down.
+- Tone colour (from 2026-10-03, step 12): TONE_SHARP, set by TONE_PRESET on
+  line 22 of firmware/src/main.cpp. The wave is 1.0 x 600 Hz + 0.33 x 3rd
+  (1800 Hz) + 0.20 x 5th (3000 Hz), scaled to fill the DAC range.
+- Tested 2026-10-03: all three presets tried on the board. TONE_SHARP kept as
+  the brightest, closest to the old square wave. The fade is still smooth
+  with no speaker clicks.

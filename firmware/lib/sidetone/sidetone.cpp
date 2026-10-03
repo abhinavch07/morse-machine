@@ -12,9 +12,25 @@ float envelopeFall(float t, float rampTime) {
   return envelopeRise(rampTime - t, rampTime);
 }
 
-void SidetoneGenerator::begin(float toneHz, float sampleRateHz, float rampMs) {
+void SidetoneGenerator::begin(float toneHz, float sampleRateHz, float rampMs,
+                              ToneShape shape) {
+  float third = 0, fifth = 0;  // TONE_SOFT: no harmonics
+  if (shape == TONE_BRIGHT) { third = 0.25f; fifth = 0.10f; }
+  if (shape == TONE_SHARP) { third = 0.33f; fifth = 0.20f; }
+
+  // Add the waves together, then find the biggest swing up or down.
+  float raw[SINE_TABLE_SIZE];
+  float peak = 0;
   for (int i = 0; i < SINE_TABLE_SIZE; i++) {
-    sine_[i] = (int8_t)lroundf(127 * sinf(2 * (float)M_PI * i / SINE_TABLE_SIZE));
+    float x = 2 * (float)M_PI * i / SINE_TABLE_SIZE;
+    raw[i] = sinf(x) + third * sinf(3 * x) + fifth * sinf(5 * x);
+    if (fabsf(raw[i]) > peak) peak = fabsf(raw[i]);
+  }
+
+  // Scale so the biggest swing is exactly 127. Then 128 plus any entry stays
+  // inside 1 to 255, so the DAC never clips.
+  for (int i = 0; i < SINE_TABLE_SIZE; i++) {
+    wave_[i] = (int8_t)lroundf(127 * raw[i] / peak);
   }
 
   rampSamples_ = (int)lroundf(rampMs * sampleRateHz / 1000);
@@ -45,7 +61,7 @@ uint8_t IRAM_ATTR SidetoneGenerator::nextSample(bool keyDown) {
     return DAC_MID;
   }
 
-  int sample = sine_[phase_ >> 24];
+  int sample = wave_[phase_ >> 24];
   phase_ += phaseStep_;
   return (uint8_t)(DAC_MID + sample * envelope_[envPos_] / 255);
 }
