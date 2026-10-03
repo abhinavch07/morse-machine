@@ -46,3 +46,17 @@ ESP32 DevKit V1, 30 pin. The same table is in CLAUDE.md. Keep both in step.
 - Tested 2026-10-02: both LEDs light while held, exactly one line printed per
   press. Firm quick taps 35 to 55 ms, normal presses 77 to 85 ms, a long
   press 226 ms.
+
+### Sidetone buzzer on GPIO 25
+- Parts: one passive magnetic buzzer (measured 16.4 ohm) and one 330 ohm
+  resistor (measured 322 ohm).
+- Wiring: GPIO 25 to row 4, resistor from row 4 to row 6, buzzer from row 6
+  to row 8, row 8 to GND.
+- Current: about 9.5 mA peak. With the measured values it is
+  3.3 V / (322 + 16.4) ohm, about 9.8 mA. Safe for one GPIO pin.
+- Code: LEDC (PWM) channel 0 at 600 Hz, 8 bit duty. Duty 128 for sound,
+  duty 0 for silence, which holds the pin LOW.
+- Tested 2026-10-03: a 600 Hz tone plays while the key is held, silent when
+  released, LEDs follow, nothing gets warm. Very quiet through the resistor.
+  2500 Hz was only a little louder, so the low current is the limit.
+- Next: the PAM8403 amplifier and the 8 ohm speaker, to make it louder.

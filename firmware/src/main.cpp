@@ -1,6 +1,6 @@
-// Phase 2, Session 1, Step 8: push button as a key.
-// While the button on GPIO 27 is held, both LEDs are on. On each release the
-// time it was held is printed over serial.
+// Phase 2, Session 1, Step 9: sidetone on a passive buzzer.
+// While the button on GPIO 27 is held, a 600 Hz tone plays on GPIO 25 and both
+// LEDs are on. On each release the time it was held is printed over serial.
 
 #include <Arduino.h>
 #include <morse.h>
@@ -9,6 +9,13 @@
 const int ONBOARD_LED_PIN = 2;           // the blue LED built into the DevKit V1
 const int LED_PIN = 26;                  // external LED on the breadboard
 const int KEY_PIN = 27;                  // button to GND, INPUT_PULLUP
+const int SIDETONE_PIN = 25;             // 330 ohm resistor, then passive buzzer to GND
+
+// Sidetone, made by the LEDC (PWM) hardware so the CPU is free.
+const int SIDETONE_HZ = 600;             // default pitch from the timing spec
+const int SIDETONE_CHANNEL = 0;          // one of the 16 LEDC channels
+const int SIDETONE_BITS = 8;             // duty goes from 0 to 255
+const int SIDETONE_DUTY_ON = 128;        // half the time high, half low: a square wave
 
 // A reading must stay the same this long before we believe it.
 const unsigned long DEBOUNCE_MS = 10;
@@ -27,6 +34,12 @@ unsigned long keyDownStartMs = 0;        // when the current press began
 void setLeds(bool on) {
   digitalWrite(ONBOARD_LED_PIN, on ? HIGH : LOW);
   digitalWrite(LED_PIN, on ? HIGH : LOW);
+}
+
+// Duty 0 holds the pin LOW all the time. No pulses means no sound and no hum,
+// and no current flows through the buzzer while the key is up.
+void setSidetone(bool on) {
+  ledcWrite(SIDETONE_CHANNEL, on ? SIDETONE_DUTY_ON : 0);
 }
 
 // Turn the LEDs on or off and hold them for a time. delay() only takes whole
@@ -81,6 +94,11 @@ void setup() {
   pinMode(ONBOARD_LED_PIN, OUTPUT);
   pinMode(LED_PIN, OUTPUT);
   pinMode(KEY_PIN, INPUT_PULLUP);
+
+  // Set the timer to 600 Hz once, link it to the pin, and start silent.
+  ledcSetup(SIDETONE_CHANNEL, SIDETONE_HZ, SIDETONE_BITS);
+  ledcAttachPin(SIDETONE_PIN, SIDETONE_CHANNEL);
+  setSidetone(false);
 }
 
 // No delay() here, so loop() runs thousands of times a second and never
@@ -101,6 +119,7 @@ void loop() {
     if (pressed != keyDown) {
       keyDown = pressed;
       setLeds(keyDown);
+      setSidetone(keyDown);
       if (keyDown) {
         keyDownStartMs = now;
       } else {

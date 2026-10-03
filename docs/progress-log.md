@@ -209,3 +209,37 @@ Learned:
 Next:
 - Then the sidetone on GPIO 25.
 - Before the Phase 2 decoder work, add the prosigns to the C++ library.
+
+## 2026-10-03 Phase 2 session 2 step 9: sidetone on a passive buzzer
+
+Built:
+- Wiring: GPIO 25 to a 330 ohm resistor, then a passive magnetic buzzer
+  (measured 16.4 ohm) to GND. Peak current about 3.3 V / 346 ohm = 9.5 mA.
+- main.cpp plays a 600 Hz tone on GPIO 25 while the key on GPIO 27 is held,
+  together with both LEDs. The 10 ms debounce and the "key down N ms" print
+  are unchanged.
+- The tone uses the ESP32 LEDC (PWM) hardware: set up once at 600 Hz with
+  8 bit duty, then duty 128 (50 percent) for sound and duty 0 for silence.
+  Duty 0 holds the pin LOW, so there is no hum and no current when key up.
+- Named constants SIDETONE_PIN = 25 and SIDETONE_HZ = 600.
+- The ESP32 build and the 8 native tests pass.
+- Tested on real hardware: a 600 Hz tone plays while the key is held, silent
+  when released, LEDs follow, nothing gets warm. Wiring noted in
+  docs/hardware-notes.md.
+- The tone is very quiet through the 330 ohm resistor. A hand test at 2500 Hz
+  was only a little louder, so the low current is the limit, not the pitch.
+  Set back to 600 Hz.
+
+Learned:
+- The ESP32 pin can only be fully on or fully off. Switching it 600 times a
+  second makes the buzzer move 600 times a second, which we hear as a tone.
+- The LEDC hardware makes the square wave by itself, so loop() stays free to
+  read the key.
+- The installed framework is Arduino-ESP32 2.0.17, so it uses the channel
+  based calls ledcSetup(), ledcAttachPin() and ledcWrite().
+
+Next:
+- PAM8403 amplifier and 8 ohm speaker on the sidetone, to make it louder.
+- The 5 ms rise and fall ramp from the spec is not done yet. A square wave on
+  a buzzer cannot fade smoothly, so it fits better with the PAM8403 speaker.
+- Before the Phase 2 decoder work, add the prosigns to the C++ library.
