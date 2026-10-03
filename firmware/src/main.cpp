@@ -1,5 +1,5 @@
-// Phase 2, Session 2, Step 15: show decoded text on the OLED.
-// While the button on GPIO 27 is held, a 600 Hz tone with a 5 ms fade in and
+// Phase 2, Session 2, Step 16: touch key on GPIO 32 (touch channel T9).
+// While the button on GPIO 27 is held or the foil pad on GPIO 32 is touched, a 600 Hz tone with a 5 ms fade in and
 // fade out plays on GPIO 25 (DAC1), and both LEDs are on. The press and gap
 // times go to the decoder. Letters print on one line as they are decoded, a
 // word gap prints a space, and 5 seconds with no presses ends the line.
@@ -13,12 +13,14 @@
 #include <morse.h>
 #include <screen_text.h>
 #include <sidetone.h>
+#include <touch_key.h>
 
 // Pins, from the pin map in CLAUDE.md and docs/hardware-notes.md
 const int ONBOARD_LED_PIN = 2;           // the blue LED built into the DevKit V1
 const int LED_PIN = 26;                  // external LED on the breadboard
 const int KEY_PIN = 27;                  // button to GND, INPUT_PULLUP
 const int SIDETONE_PIN = 25;             // DAC1, to PAM8403 input L
+const int TOUCH_PIN = 32;                // touch channel T9, foil pad
 const int OLED_SDA_PIN = 21;             // I2C data
 const int OLED_SCL_PIN = 22;             // I2C clock
 
@@ -43,6 +45,24 @@ const int TIMER_TICKS = 1000000 / SAMPLE_RATE_HZ;  // 25 microseconds per sample
 // A reading must stay the same this long before we believe it.
 const unsigned long DEBOUNCE_MS = 10;
 
+// Touch key. The reading drops when the pad is touched. Two limits, so a
+// reading that wobbles around one of them cannot flicker the key.
+const float TOUCH_PRESS_RATIO = 0.65;    // touched below 65% of the no touch level
+const float TOUCH_RELEASE_RATIO = 0.80;  // released above 80%
+const int TOUCH_READINGS_TO_AGREE = 3;   // readings in a row before a change
+const unsigned long TOUCH_CALIBRATE_MS = 2000;
+
+// The touch hardware measures on its own, over and over, and touchRead()
+// just gives the newest result. By default it rests 4096 slow clock cycles
+// (150 kHz) between measurements, about 27 ms, far too slow for Morse.
+// 256 cycles is about 1.7 ms, plus 0.5 ms to measure (4096 cycles at 8 MHz),
+// so a fresh result about every 2.2 ms. We read every 3 ms, so each reading
+// is a new one, and 3 agreeing readings take about 6 to 9 ms, close to the
+// button's 10 ms debounce.
+const uint16_t TOUCH_MEASURE_CYCLES = 0x1000;
+const uint16_t TOUCH_SLEEP_CYCLES = 0x100;
+const unsigned long TOUCH_READ_MS = 3;
+
 // Decoder limits in ms, fitted to the owner's hand (timing test, 3 Oct 2026).
 // Presses are about 15 WPM, but gaps are longer, so each limit is set alone.
 const float DIT_DAH_SPLIT_MS = 160;      // 2 units at 15 WPM. Dits up to 139, dahs from 180
@@ -56,12 +76,18 @@ const unsigned long NEW_LINE_MS = 5000;
 // we can see how long they really are. Set to false to hide them.
 const bool DEBUG_TIMING = false;
 
+// Print the raw touch reading about 10 times a second, to check the levels.
+const bool DEBUG_TOUCH = false;
+const unsigned long DEBUG_TOUCH_MS = 100;
+
 // Kept for sendText(), which is not used right now but will be later.
 const float WPM = 5;
 const char* MESSAGE = "VU";
 
 // Key state, kept between passes of loop().
-bool keyDown = false;                    // the cleaned up, debounced state
+bool buttonDown = false;                 // the button, after debounce
+bool keyDown = false;                    // button OR touch pad, what we send
+unsigned long lastKeyChangeMs = 0;       // time of the last keyDown change
 unsigned long keyDownStartMs = 0;        // when the current press began
 unsigned long keyUpStartMs = 0;          // when the current gap began
 
@@ -72,6 +98,10 @@ bool lineHasText = false;                // printed something since the last new
 // uses this time, not the time it happens to notice the change, so a slow
 // screen update cannot make a press or gap look longer or shorter.
 volatile unsigned long lastEdgeMs = 0;
+
+TouchKey touchKey(TOUCH_PRESS_RATIO, TOUCH_RELEASE_RATIO, TOUCH_READINGS_TO_AGREE);
+unsigned long lastTouchReadMs = 0;
+unsigned long lastTouchPrintMs = 0;
 
 // The screen. F means the whole picture is kept in a 1 KB buffer in RAM, so
 // we can draw it all at once and then send it to the screen in pieces.
@@ -213,15 +243,81 @@ void printScreenTiming() {
 
 // One debug line like "down 85". Debug lines go on their own line, so if a
 // letter is waiting on the current line, end that line first.
-void printTiming(const char* label, unsigned long ms) {
-  if (!DEBUG_TIMING) return;
+void printDebug(const char* label, unsigned long value) {
   if (lineHasText) {
     Serial.println();
     lineHasText = false;
   }
   Serial.print(label);
   Serial.print(' ');
-  Serial.println(ms);
+  Serial.println(value);
+}
+
+void printTiming(const char* label, unsigned long ms) {
+  if (DEBUG_TIMING) printDebug(label, ms);
+}
+
+// Learn the pad's "no touch" level. It changes with humidity, the length of
+// the wire and the size of the pad, so it is measured fresh at every start.
+void calibrateTouch() {
+  touchRead(TOUCH_PIN);  // the first call switches the touch hardware on
+  // Must come after that first call. Setting the cycles before it would be
+  // undone, with the two numbers swapped, when the hardware is switched on.
+  touchSetCycles(TOUCH_MEASURE_CYCLES, TOUCH_SLEEP_CYCLES);
+  delay(50);  // let a few measurements finish at the new speed
+
+  Serial.println("Touch calibrating, do not touch the pad");
+  unsigned long start = millis();
+  while (millis() - start < TOUCH_CALIBRATE_MS) {
+    touchKey.addCalibrationReading(touchRead(TOUCH_PIN));
+    delay(TOUCH_READ_MS);
+  }
+  touchKey.finishCalibration();
+
+  Serial.printf("Touch no touch level %.1f, touched below %.1f, released above %.1f\n",
+                touchKey.noTouchLevel(), touchKey.pressLevel(), touchKey.releaseLevel());
+}
+
+// Called when the button or the pad changes. keyDown is "button OR pad", so
+// it only changes when the first one goes down or the last one comes up.
+// atMs is when that input really changed, not when loop() noticed.
+void updateKey(unsigned long atMs) {
+  bool down = buttonDown || touchKey.touched();
+  if (down == keyDown) return;
+
+  // The button and the pad are noticed with different delays, so in a rare
+  // overlap atMs could be a little before the last change. Never go back in
+  // time, or a press or gap would come out negative.
+  if ((long)(atMs - lastKeyChangeMs) < 0) atMs = lastKeyChangeMs;
+  lastKeyChangeMs = atMs;
+
+  keyDown = down;
+  setLeds(keyDown);
+  setSidetone(keyDown);
+  if (keyDown) {
+    reportDecoded(decoder.keyUp(atMs - keyUpStartMs));  // the gap just ended
+    printTiming("up", atMs - keyUpStartMs);
+    keyDownStartMs = atMs;
+  } else {
+    decoder.keyDown(atMs - keyDownStartMs);
+    printTiming("down", atMs - keyDownStartMs);
+    keyUpStartMs = atMs;
+    screenChanged = true;  // one more dit or dah on the bottom line
+  }
+}
+
+// Read the pad every TOUCH_READ_MS, in loop(), never in an interrupt.
+void readTouch(unsigned long now) {
+  if (now - lastTouchReadMs < TOUCH_READ_MS) return;
+  lastTouchReadMs = now;
+
+  uint16_t raw = touchRead(TOUCH_PIN);
+  if (touchKey.update(raw, now)) updateKey(touchKey.changeMs());
+
+  if (DEBUG_TOUCH && now - lastTouchPrintMs >= DEBUG_TOUCH_MS) {
+    lastTouchPrintMs = now;
+    printDebug("touch", raw);
+  }
 }
 
 // Send a whole text. Same gap rules as totalDurationMs() in the library.
@@ -268,6 +364,7 @@ void setup() {
   oled.begin();
   drawScreen();
   printScreenTiming();
+  calibrateTouch();
 
   // The DAC starts at 0 V, but silence is the middle level, 128. Jumping
   // straight there would thump the speaker once, so slide up over 0.5 s.
@@ -296,30 +393,21 @@ void loop() {
   bool settled = (lastEdgeMs == edgeMs) && (now - edgeMs >= DEBOUNCE_MS);
 
   // Quiet for DEBOUNCE_MS since the last edge, so this reading is real.
-  if (settled && pressed != keyDown) {
-    keyDown = pressed;
-    setLeds(keyDown);
-    setSidetone(keyDown);
-    // Times come from the last edge, when the contact stopped bouncing, not
-    // from now. Both ends are measured the same way, so the times are true
-    // even if loop() was busy with the screen.
-    if (keyDown) {
-      reportDecoded(decoder.keyUp(edgeMs - keyUpStartMs));  // the gap just ended
-      printTiming("up", edgeMs - keyUpStartMs);
-      keyDownStartMs = edgeMs;
-    } else {
-      decoder.keyDown(edgeMs - keyDownStartMs);
-      printTiming("down", edgeMs - keyDownStartMs);
-      keyUpStartMs = edgeMs;
-      screenChanged = true;  // one more dit or dah on the bottom line
-    }
+  // Times come from the last edge, when the contact stopped bouncing, not
+  // from now. Both ends are measured the same way, so the times are true
+  // even if loop() was busy with the screen.
+  if (settled && pressed != buttonDown) {
+    buttonDown = pressed;
+    updateKey(edgeMs);
   }
+
+  readTouch(now);
 
   // While the key is up, tell the decoder how long the gap is so far, so a
   // letter prints as soon as the gap reaches LETTER_GAP_MS, without waiting for
-  // the next press. Only when settled, because during a bounce the gap may
-  // already be over.
-  if (settled && !keyDown) {
+  // the next press. Only when both inputs are steady, because during a
+  // bounce or a touch that is still being confirmed the gap may already be over.
+  if (settled && !touchKey.changing() && !keyDown) {
     reportDecoded(decoder.keyUp(now - keyUpStartMs));
 
     // A long pause ends the line, but never prints empty lines.

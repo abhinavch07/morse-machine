@@ -502,3 +502,45 @@ Next:
 - Later: adaptive speed in the decoder, or retune from fresh debug logs.
 - Then the DIY straight key, and after it the touch key on GPIO 32.
 
+## 2026-10-03 Phase 2, session 2 step 16: touch key on GPIO 32
+
+Built:
+- Hardware: a 2 cm foil pad on a short jumper in c35, next to D32 (T9).
+- lib/touch_key: a TouchKey class with no Arduino code. It averages
+  calibration readings into a no touch level, then turns raw readings into
+  touched or not touched with two limits (touched below 65%, released above
+  80%) and only changes after 3 readings in a row agree. It also remembers
+  when the change began, so the smoothing delay does not change timings.
+- main.cpp: at start up it prints "Touch calibrating, do not touch the pad",
+  averages 2 seconds of readings and prints the level and both limits. In
+  loop() the pad is read every 3 ms with touchRead(). Key down is button OR
+  pad, and both go to the same decoder, sidetone, LEDs and OLED through one
+  function, updateKey(). The button path and its interrupt timing are the
+  same as before.
+- The touch hardware now measures every 2.2 ms instead of every 27 ms,
+  using touchSetCycles(). It has to be called after the first touchRead(),
+  because switching the hardware on resets it (with the two numbers
+  swapped, in core 2.0.17).
+- DEBUG_TOUCH = false. When true it prints "touch N" about 10 times a second.
+- 8 new native tests: calibration average, no touch without calibration,
+  press below 65%, no release until above 80%, no flicker around one limit,
+  single noisy readings ignored, change time, and the changing flag. All 52
+  native tests pass. The ESP32 build passes.
+- Board test passed: the pad turns the tone and LEDs on and off cleanly
+  with no flicker. K decodes from both the pad and the button, and the
+  button works as before.
+- Calibration at the test: no touch level 78.6, touched below 51.1, released above 62.9.
+
+Learned:
+- Capacitive touch counts how fast the pad charges. A finger is extra
+  capacitance, so the count drops.
+- Hysteresis: one limit flickers when a reading wobbles around it. Two
+  limits with a gap between them give a dead zone where nothing changes.
+- Reading a sensor faster than it measures just gives the same old number
+  again. The default touch timing would have added about 27 ms per reading.
+
+Next:
+- Optional: use DEBUG_TOUCH once to see how far a touch drops below the
+  press limit.
+- Build the DIY straight key, then later the touch paddle on GPIO 32 and 33.
+

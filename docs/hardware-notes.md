@@ -51,6 +51,7 @@ ESP32 right side, wires in column c of the right board:
 | D27 | 31 | c31 | j58, push button |
 | D26 | 32 | c32 | j50, LED resistor |
 | D25 | 33 | c33 | row 4 right half, PAM8403 input L |
+| D32 | 35 | c35 | touch pad, 2 cm foil on a short jumper |
 
 ESP32 left side, OLED wires in column g of the left board:
 
@@ -170,3 +171,23 @@ Right board, left half (columns a to e):
   exact, the firmware sends it one 8 pixel page per pass of loop(), a few ms
   each, and the key times come from a pin interrupt. See the progress log
   entry for step 15.
+
+### Touch key on GPIO 32 (T9)
+- Parts: a 2 cm square of kitchen foil on a short jumper wire. No resistor
+  or module. The ESP32 has touch sensing built in.
+- Wiring: the jumper goes into c35 on the right board, next to D32.
+- How it works: the chip charges and discharges the pad again and again and
+  counts how many times it manages in a fixed time. A finger adds
+  capacitance, so each charge takes longer and the count drops.
+- Code (from 2026-10-03, step 16): touchRead(32) from the Arduino core
+  2.0.17. The no touch level is the average of 2 seconds of readings at
+  start up. Touched below 65% of that level, released above 80%, and only
+  after 3 readings in a row agree. Read every 3 ms.
+- The touch hardware is set to measure every 2.2 ms instead of the default
+  27 ms (touchSetCycles, 4096 measure cycles, 256 sleep cycles).
+- Do not touch the pad during the 2 second calibration after reset.
+- Tested 2026-10-03: the pad turns the tone and both LEDs on and off
+  cleanly, with no flicker. K decodes from the pad and from the button, and
+  the button works as before.
+- Calibration at that test: no touch level 78.6, touched below 51.1, released above 62.9.
+
