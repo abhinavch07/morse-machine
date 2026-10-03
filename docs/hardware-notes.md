@@ -25,13 +25,63 @@ ESP32 DevKit V1, 30 pin. The same table is in CLAUDE.md. Keep both in step.
   pull-up. They use ADC1, which keeps working when WiFi is on. ADC2 pins stop
   reading while WiFi is in use, which matters from Phase 3.
 - The onboard blue LED is on GPIO 2. It is fine as an output.
+- GPIO 21 (SDA) and GPIO 22 (SCL) are the ESP32's usual I2C pins, so the
+  OLED needs no extra pin setup.
+
+## Board layout
+Two breadboards side by side, tested 2026-10-03 (step 15).
+
+- Why two: the ESP32 DevKit V1 is so wide that on a single breadboard it
+  covers nearly every hole beside its pins, leaving almost no room for wires.
+  Across two boards, every pin has free holes next to it.
+- The new left board has its right rail strip removed, so the two boards
+  sit close together.
+- The ESP32 is in rows 25 to 40. Its left pins are in column i of the left
+  board (free holes f, g, h). Its right pins are in column a of the right
+  board (free holes b, c, d, e).
+- The right board's right red rail is 5 V (from VIN) and its right blue
+  rail is GND. Never put 3.3 V parts like the OLED on that red rail.
+
+ESP32 right side, wires in column c of the right board:
+
+| ESP32 pin | Row | Wire | Goes to |
+|---|---|---|---|
+| VIN | 26 | c26 | right red rail, 5 V |
+| GND | 27 | c27 | right blue rail, GND |
+| D27 | 31 | c31 | j58, push button |
+| D26 | 32 | c32 | j50, LED resistor |
+| D25 | 33 | c33 | row 4 right half, PAM8403 input L |
+
+ESP32 left side, OLED wires in column g of the left board:
+
+| ESP32 pin | Row | Goes to |
+|---|---|---|
+| 3V3 | 26 | OLED VCC |
+| GND | 27 | OLED GND |
+| D21 | 36 | OLED SDA |
+| D22 | 39 | OLED SCL |
+
+Right board, right half (columns f to j):
+- Row 4: the D25 wire, PAM8403 input L, and one leg of the old 330 ohm
+  resistor (rows 4 to 6, no longer used).
+- Row 8: an old GND wire to the blue rail, no longer used.
+- LED: 220 ohm resistor from row 50 to row 54, LED long leg in row 54,
+  short leg to the blue rail.
+- Button: across the centre gap, legs in rows 58 and 60 (columns e and f),
+  j60 to the blue rail.
+
+Right board, left half (columns a to e):
+- Row 10: PAM8403 Lout + and speaker +.
+- Row 13: PAM8403 Lout - and speaker -.
 
 ## Circuits
 
 ### External LED on GPIO 26
 - Parts: one yellow 5 mm LED and one 220 ohm resistor.
 - Wiring: GPIO 26 to the resistor, the resistor to the LED long leg (anode),
-  the LED short leg (cathode, flat edge of the rim) to GND.
+  the LED short leg (cathode, flat edge of the rim) to GND. On the two board
+  layout: D26 to j50, resistor rows 50 to 54, long leg row 54, short leg to
+  the blue rail.
 - Current: about (3.3 V minus 2 V across the LED) / 220 ohm, which is about
   6 mA. Bright enough and well within what one GPIO pin can supply.
 - Tested 2026-10-02: blinks VU together with the onboard LED on GPIO 2.
@@ -40,7 +90,8 @@ ESP32 DevKit V1, 30 pin. The same table is in CLAUDE.md. Keep both in step.
 - Parts: one 4-leg tactile push button. No resistor, because the ESP32 has a
   pull-up resistor inside.
 - Placement: across the centre gap of the breadboard, legs in rows 58 and 60.
-- Wiring: GPIO 27 to row 58, row 60 to GND.
+- Wiring: GPIO 27 to row 58, row 60 to GND. On the two board layout: D27 to
+  j58, j60 to the blue rail.
 - Code: pinMode INPUT_PULLUP, so the pin reads HIGH when open and LOW when
   pressed. 10 ms debounce in software.
 - Tested 2026-10-02: both LEDs light while held, exactly one line printed per
@@ -100,3 +151,22 @@ ESP32 DevKit V1, 30 pin. The same table is in CLAUDE.md. Keep both in step.
 - Tested 2026-10-03: all three presets tried on the board. TONE_SHARP kept as
   the brightest, closest to the old square wave. The fade is still smooth
   with no speaker clicks.
+
+### 1.3 inch OLED screen (SH1106, I2C)
+- Part: 1.3 inch OLED, 128 x 64 pixels, SH1106 driver, I2C, 4 pins, module
+  marked JMD1.3A.
+- Address: the select on the back is set to 0x78. That is the 8 bit form of
+  the address. The 7 bit form, which most I2C scanners print, is 0x3C.
+- Wiring: OLED VCC to ESP32 3V3, GND to GND, SCL to GPIO 22, SDA to GPIO 21.
+  VCC must be 3.3 V, never the 5 V rail used by the PAM8403.
+- No extra pull-up resistors. The module has its own on SDA and SCL.
+- Code (from 2026-10-03, step 15): U8g2 library, constructor
+  U8G2_SH1106_128X64_NONAME_F_HW_I2C, which uses the ESP32's own I2C
+  hardware. Bus clock 400 kHz. "F" means a full 1 KB picture buffer in RAM.
+- Screen layout: "MORSE" in small letters at the top, four lines of decoded
+  text in the middle (21 letters each, scrolling up), and the dits and dahs
+  of the letter being keyed at the bottom, like ". - .".
+- Sending the whole screen takes about 20 to 30 ms. To keep key timing
+  exact, the firmware sends it one 8 pixel page per pass of loop(), a few ms
+  each, and the key times come from a pin interrupt. See the progress log
+  entry for step 15.

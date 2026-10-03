@@ -35,6 +35,10 @@ class KeyDecoder {
   // is reported only once per gap.
   DecodeResult keyUp(float ms);
 
+  // The dits and dahs of the letter being keyed now, like ".-", or "" when
+  // no letter is in progress. Used to show the code on the screen.
+  const char* currentCode() const;
+
  private:
   static const int MAX_SYMBOLS = 9;  // longer than any code in the table
 

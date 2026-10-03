@@ -42,3 +42,9 @@ DecodeResult KeyDecoder::keyUp(float ms) {
 
   return result;
 }
+
+const char* KeyDecoder::currentCode() const {
+  // After a letter is done, code still holds its old symbols until the next
+  // press, so symbolCount says whether they belong to a letter in progress.
+  return (symbolCount > 0) ? code : "";
+}

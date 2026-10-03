@@ -184,6 +184,22 @@ void test_too_many_presses_is_star() {
   TEST_ASSERT_EQUAL_STRING("*", r.letter);
 }
 
+void test_current_code_grows_then_clears() {
+  // The screen shows the code so far while keying, and nothing once the
+  // letter is done, even though the old symbols are still in the buffer.
+  KeyDecoder d = makeDecoder();
+  TEST_ASSERT_EQUAL_STRING("", d.currentCode());
+  d.keyDown(80);
+  TEST_ASSERT_EQUAL_STRING(".", d.currentCode());
+  d.keyUp(80);
+  d.keyDown(240);
+  TEST_ASSERT_EQUAL_STRING(".-", d.currentCode());
+  d.keyUp(450);
+  TEST_ASSERT_EQUAL_STRING("", d.currentCode());
+  d.keyDown(240);
+  TEST_ASSERT_EQUAL_STRING("-", d.currentCode());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_k);
@@ -198,5 +214,6 @@ int main() {
   RUN_TEST(test_no_output_before_first_press);
   RUN_TEST(test_unknown_code_is_star);
   RUN_TEST(test_too_many_presses_is_star);
+  RUN_TEST(test_current_code_grows_then_clears);
   return UNITY_END();
 }

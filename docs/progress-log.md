@@ -454,3 +454,51 @@ Learned:
 Next:
 - Show the decoded text on the OLED.
 - Later: adaptive speed in the decoder, or retune from fresh debug logs.
+
+## 2026-10-03 Phase 2, session 2 step 15: decoded text on the OLED
+
+Built:
+- Wired the 1.3 inch SH1106 OLED (JMD1.3A, address 0x78) to 3V3, GND,
+  GPIO 21 (SDA) and GPIO 22 (SCL). The ESP32 now sits across two
+  breadboards.
+- Added the U8g2 library to platformio.ini, for the ESP32 build only.
+- lib/screen_text: a ScreenText class with no Arduino code. It keeps 4 lines
+  of 21 letters, moves a word down whole when the line is full, never splits
+  a prosign like <AR>, skips extra spaces and scrolls the oldest line off the
+  top. spacedCode() turns ".-." into ". - .".
+- KeyDecoder.currentCode(): the dits and dahs of the letter in progress, or
+  "" when there is none.
+- main.cpp: the screen shows "MORSE" at the top, the decoded text in the
+  middle, and the code being keyed at the bottom. It is redrawn only when a
+  letter, a word gap, a new line or a new dit or dah arrives. The 5 second
+  pause that starts a new line on serial also starts one on the screen.
+  Serial printing is unchanged.
+- Timing: a pin interrupt on GPIO 27 notes the time of every edge. The
+  debounce in loop() still waits 10 ms of quiet, but the press and gap times
+  now come from the interrupt's edge time, not from when loop() noticed. The
+  screen is sent one 8 pixel page per pass of loop(), so loop() never stops
+  for more than a few ms. The sidetone timer interrupt is untouched.
+- With DEBUG_TIMING = true, start up also prints how long a full screen and
+  one page take to send.
+- 11 new native tests (10 for ScreenText, 1 for currentCode). All 44 native
+  tests pass. The ESP32 build passes.
+- Board test passed: MORSE shows at start up, the bottom line shows the
+  dits and dahs while keying, and the decoded text matches serial.
+- hardware-notes.md now has the two breadboard layout, tested 3 Oct 2026:
+  ESP32 in rows 25 to 40, every wire by row and column, and the OLED wires
+  on the left board.
+
+Learned:
+- I2C sends data one bit at a time on two wires. At 400 kHz the 1 KB screen
+  takes about 25 ms, which is longer than the room between my dits and dahs.
+- An interrupt can save the exact time of an event even when the main loop
+  is busy, as long as it does very little, here just one line.
+- Sharing a value between an interrupt and loop() needs care: read it,
+  check it again, and skip the pass if it changed in between.
+- I2C addresses come in two forms. 0x78 is 0x3C moved one bit left.
+
+Next:
+- Optional: turn on DEBUG_TIMING once to read the real screen send times.
+- Later: adaptive speed in the decoder, or retune from fresh debug logs.
+- Then the DIY straight key, and after it the touch key on GPIO 32.
+
