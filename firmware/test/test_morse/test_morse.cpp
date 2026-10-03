@@ -44,6 +44,63 @@ void test_unknown_character() {
   TEST_ASSERT_NULL(morseCode('#'));
 }
 
+// Encode a whole token with morseCodeAt and check it used every char.
+const char* encodeToken(const char* token) {
+  int used = 0;
+  const char* code = morseCodeAt(token, &used);
+  TEST_ASSERT_EQUAL_INT((int)strlen(token), used);
+  return code;
+}
+
+void test_each_prosign_encodes() {
+  TEST_ASSERT_EQUAL_STRING(".-.-.", encodeToken("<AR>"));
+  TEST_ASSERT_EQUAL_STRING("...-.-", encodeToken("<SK>"));
+  TEST_ASSERT_EQUAL_STRING("-...-", encodeToken("<BT>"));
+  TEST_ASSERT_EQUAL_STRING("-.--.", encodeToken("<KN>"));
+  // Lowercase works, like Python, which uppercases the text first.
+  TEST_ASSERT_EQUAL_STRING(".-.-.", encodeToken("<ar>"));
+}
+
+void test_prosigns_round_trip_except_shared_bt() {
+  // <AR>, <SK> and <KN> have unique codes, so they round trip cleanly.
+  TEST_ASSERT_EQUAL_STRING("<AR>", morseDecode(encodeToken("<AR>")));
+  TEST_ASSERT_EQUAL_STRING("<SK>", morseDecode(encodeToken("<SK>")));
+  TEST_ASSERT_EQUAL_STRING("<KN>", morseDecode(encodeToken("<KN>")));
+  // <BT> and "=" share -...-, which decodes to the printable "=".
+  TEST_ASSERT_EQUAL_STRING(morseCode('='), encodeToken("<BT>"));
+  TEST_ASSERT_EQUAL_STRING("=", morseDecode("-...-"));
+}
+
+void test_decode_letters_and_unknown() {
+  TEST_ASSERT_EQUAL_STRING("V", morseDecode("...-"));
+  TEST_ASSERT_EQUAL_STRING("0", morseDecode("-----"));
+  TEST_ASSERT_NULL(morseDecode("........"));
+  TEST_ASSERT_NULL(morseDecode(""));
+}
+
+void test_bad_prosigns() {
+  int used = 0;
+  // Unknown prosign: the whole "<ZZ>" is skipped.
+  TEST_ASSERT_NULL(morseCodeAt("<ZZ>", &used));
+  TEST_ASSERT_EQUAL_INT(4, used);
+  // No ">" in the same word: only the "<" is skipped.
+  TEST_ASSERT_NULL(morseCodeAt("<AR", &used));
+  TEST_ASSERT_EQUAL_INT(1, used);
+  TEST_ASSERT_NULL(morseCodeAt("<AR B>", &used));
+  TEST_ASSERT_EQUAL_INT(1, used);
+}
+
+void test_prosign_has_no_letter_gaps() {
+  // <AR> is .-.-. sent as one run: 3 dits + 2 dahs + 4 gaps = 13 units,
+  // plus a 7 unit word gap = 20 units = 1200 ms at 20 WPM. Python gives
+  // total_duration_ms("<AR>", 20) == 1200 too.
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 1200.0f, totalDurationMs("<AR>", 20));
+  // Sent as two letters A R, a 3 unit letter gap adds up to 22 units.
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 1320.0f, totalDurationMs("AR", 20));
+  // A prosign as its own word after text, same as Python: 56 units.
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 3360.0f, totalDurationMs("CQ <KN>", 20));
+}
+
 void test_paris_is_50_units() {
   // PARIS plus one word gap is 50 units, and 50 x 60 ms is 3000 ms.
   TEST_ASSERT_FLOAT_WITHIN(0.01f, 3000.0f, totalDurationMs("PARIS ", 20));
@@ -63,6 +120,11 @@ int main() {
   RUN_TEST(test_v_and_u);
   RUN_TEST(test_lowercase_figures_and_punctuation);
   RUN_TEST(test_unknown_character);
+  RUN_TEST(test_each_prosign_encodes);
+  RUN_TEST(test_prosigns_round_trip_except_shared_bt);
+  RUN_TEST(test_decode_letters_and_unknown);
+  RUN_TEST(test_bad_prosigns);
+  RUN_TEST(test_prosign_has_no_letter_gaps);
   RUN_TEST(test_paris_is_50_units);
   RUN_TEST(test_empty_text);
   return UNITY_END();

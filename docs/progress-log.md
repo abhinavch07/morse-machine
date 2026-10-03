@@ -355,3 +355,34 @@ Learned:
 
 Next:
 - Before the Phase 2 decoder work, add the prosigns to the C++ library.
+
+## 2026-10-03 Phase 2 session 2 step 13: prosigns in the C++ Morse library
+
+Built:
+- lib/morse: the table now uses text tokens ("A", "<AR>") instead of single
+  chars, so prosigns fit. It has the same entries in the same order as
+  morse_core/codes.py, including <AR>, <SK>, <BT> and <KN>.
+- New morseCodeAt(text, &used): reads one token from the start of the text,
+  either one character or a prosign in angle brackets, and says how many
+  chars it used. Lowercase works, like Python.
+- New morseDecode(code): code in, text out, nullptr for an unknown code.
+  The shared code -...- decodes to "=", the same rule as Python.
+- totalDurationMs() now counts a prosign as one character, so "<AR>" has no
+  letter gaps inside. It gives 1200 ms at 20 WPM, the same as Python.
+- morseCode(char) still works, so main.cpp did not change.
+- 5 new native tests. All 21 native tests pass. The ESP32 build passes.
+- Matching Python test in tests/test_timing.py: "<AR>" totals 1200 ms and
+  "AR" totals 1320 ms at 20 WPM. All 60 Python tests pass.
+
+Learned:
+- A prosign is two letters run together with no letter gap, so it sounds
+  like one character. <AR> takes 20 units, while A then R takes 22.
+- Python and C++ differ on bad input. Python raises an error. C++ on the
+  ESP32 has no exceptions, so it returns nullptr and skips: an unknown
+  prosign like <ZZ> is skipped whole, and a "<" with no ">" in the same word
+  is skipped on its own.
+
+Next:
+- Use morseCodeAt() in main.cpp so the ESP32 can send prosigns.
+- Then the Phase 2 decoder: time key presses, build a code, and use
+  morseDecode() to show the character on serial and the OLED.

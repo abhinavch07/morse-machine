@@ -2,36 +2,61 @@
 
 #include <ctype.h>
 #include <stddef.h>
+#include <string.h>
 
 namespace {
 
+// A token is one character like "A", or a prosign like "<AR>". Tokens are
+// strings, not chars, so that prosigns fit in the same table.
 struct MorseEntry {
-  char c;
+  const char* token;
   const char* code;
 };
 
-// ITU table. Keep it in step with morse_core/codes.py.
+// ITU table. Keep it in step with morse_core/codes.py, in the same order.
+// The order matters for decoding: the first token with a code wins.
 const MorseEntry MORSE_TABLE[] = {
   // Letters A to Z
-  {'A', ".-"},   {'B', "-..."}, {'C', "-.-."}, {'D', "-.."},  {'E', "."},
-  {'F', "..-."}, {'G', "--."},  {'H', "...."}, {'I', ".."},   {'J', ".---"},
-  {'K', "-.-"},  {'L', ".-.."}, {'M', "--"},   {'N', "-."},   {'O', "---"},
-  {'P', ".--."}, {'Q', "--.-"}, {'R', ".-."},  {'S', "..."},  {'T', "-"},
-  {'U', "..-"},  {'V', "...-"}, {'W', ".--"},  {'X', "-..-"}, {'Y', "-.--"},
-  {'Z', "--.."},
+  {"A", ".-"},   {"B", "-..."}, {"C", "-.-."}, {"D", "-.."},  {"E", "."},
+  {"F", "..-."}, {"G", "--."},  {"H", "...."}, {"I", ".."},   {"J", ".---"},
+  {"K", "-.-"},  {"L", ".-.."}, {"M", "--"},   {"N", "-."},   {"O", "---"},
+  {"P", ".--."}, {"Q", "--.-"}, {"R", ".-."},  {"S", "..."},  {"T", "-"},
+  {"U", "..-"},  {"V", "...-"}, {"W", ".--"},  {"X", "-..-"}, {"Y", "-.--"},
+  {"Z", "--.."},
   // Figures 0 to 9
-  {'0', "-----"}, {'1', ".----"}, {'2', "..---"}, {'3', "...--"},
-  {'4', "....-"}, {'5', "....."}, {'6', "-...."}, {'7', "--..."},
-  {'8', "---.."}, {'9', "----."},
+  {"0", "-----"}, {"1", ".----"}, {"2", "..---"}, {"3", "...--"},
+  {"4", "....-"}, {"5", "....."}, {"6", "-...."}, {"7", "--..."},
+  {"8", "---.."}, {"9", "----."},
   // Punctuation from the ASOC test, plus "/" for the Koch order
-  {'.', ".-.-.-"},  // full stop
-  {',', "--..--"},  // comma
-  {';', "-.-.-."},  // semicolon
-  {'=', "-...-"},   // break sign (same code as the prosign BT)
-  {'-', "-....-"},  // hyphen
-  {'?', "..--.."},  // question mark
-  {'/', "-..-."},   // slash
+  {".", ".-.-.-"},  // full stop
+  {",", "--..--"},  // comma
+  {";", "-.-.-."},  // semicolon
+  {"=", "-...-"},   // break sign (same code as <BT>)
+  {"-", "-....-"},  // hyphen
+  {"?", "..--.."},  // question mark
+  {"/", "-..-."},   // slash
+  // Prosigns. "=" is listed above <BT>, so -...- decodes to "=".
+  {"<AR>", ".-.-."},   // end of message
+  {"<SK>", "...-.-"},  // end of contact
+  {"<BT>", "-...-"},   // break or new paragraph (same code as "=")
+  {"<KN>", "-.--."},   // go ahead, named station only
 };
+
+// True if the first len chars of text match token exactly, ignoring case.
+bool tokenMatches(const char* text, int len, const char* token) {
+  if ((int)strlen(token) != len) return false;
+  for (int i = 0; i < len; i++) {
+    if (toupper((unsigned char)text[i]) != token[i]) return false;
+  }
+  return true;
+}
+
+const char* lookupToken(const char* text, int len) {
+  for (const MorseEntry& entry : MORSE_TABLE) {
+    if (tokenMatches(text, len, entry.token)) return entry.code;
+  }
+  return nullptr;
+}
 
 // Time to send one code, with the 1 unit gaps between its symbols but no gap
 // after the last symbol.
@@ -47,9 +72,25 @@ float codeDurationMs(const char* code, const MorseTiming& t) {
 }  // namespace
 
 const char* morseCode(char c) {
-  char upper = (char)toupper((unsigned char)c);
+  return lookupToken(&c, 1);
+}
+
+const char* morseCodeAt(const char* text, int* used) {
+  *used = 1;
+  if (text[0] != '<') return lookupToken(text, 1);
+
+  // A prosign ends at the first ">" in the same word, like in translate.py.
+  int end = 1;
+  while (text[end] != '\0' && text[end] != ' ' && text[end] != '>') end++;
+  if (text[end] != '>') return nullptr;  // no ">": skip just the "<"
+
+  *used = end + 1;
+  return lookupToken(text, *used);
+}
+
+const char* morseDecode(const char* code) {
   for (const MorseEntry& entry : MORSE_TABLE) {
-    if (entry.c == upper) return entry.code;
+    if (strcmp(entry.code, code) == 0) return entry.token;
   }
   return nullptr;
 }
@@ -70,12 +111,16 @@ float totalDurationMs(const char* text, float wpm) {
   bool sentAny = false;
   bool spaceSeen = false;
 
-  for (int i = 0; text[i] != '\0'; i++) {
+  int i = 0;
+  while (text[i] != '\0') {
     if (text[i] == ' ') {
       spaceSeen = true;
+      i++;
       continue;
     }
-    const char* code = morseCode(text[i]);
+    int used;
+    const char* code = morseCodeAt(&text[i], &used);
+    i += used;
     if (code == nullptr) continue;
 
     // The gap before a character depends on whether a space came before it.

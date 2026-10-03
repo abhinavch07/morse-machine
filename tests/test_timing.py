@@ -68,3 +68,11 @@ def test_effective_faster_than_char_raises():
 def test_effective_equal_to_char_is_standard():
     # Passing the same speed for both must behave like standard timing.
     assert total_duration_ms("PARIS", 20, 20) == pytest.approx(3000)
+
+
+def test_prosign_has_no_letter_gaps():
+    # <AR> is .-.-. sent as one run: 3 dits + 2 dahs + 4 gaps = 13 units,
+    # plus a 7 unit word gap = 20 units = 1200 ms at 20 WPM.
+    assert total_duration_ms("<AR>", 20) == pytest.approx(1200)
+    # Sent as two letters A R, a 3 unit letter gap adds up to 22 units.
+    assert total_duration_ms("AR", 20) == pytest.approx(1320)
