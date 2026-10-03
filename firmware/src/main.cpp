@@ -1,10 +1,12 @@
-// Phase 2, Session 2, Step 12: brighter sidetone with harmonics.
+// Phase 2, Session 2, Step 14: decode key presses into letters on serial.
 // While the button on GPIO 27 is held, a 600 Hz tone with a 5 ms fade in and
-// fade out plays on GPIO 25 (DAC1), and both LEDs are on. On each release
-// the time it was held is printed over serial.
+// fade out plays on GPIO 25 (DAC1), and both LEDs are on. The press and gap
+// times go to the decoder. Letters print on one line as they are decoded, a
+// word gap prints a space, and 3 seconds with no presses ends the line.
 
 #include <Arduino.h>
 #include <soc/rtc_io_reg.h>
+#include <key_decoder.h>
 #include <morse.h>
 #include <sidetone.h>
 
@@ -30,6 +32,19 @@ const int TIMER_TICKS = 1000000 / SAMPLE_RATE_HZ;  // 25 microseconds per sample
 // A reading must stay the same this long before we believe it.
 const unsigned long DEBOUNCE_MS = 10;
 
+// Decoder limits in ms, fitted to the owner's hand (timing test, 3 Oct 2026).
+// Presses are about 15 WPM, but gaps are longer, so each limit is set alone.
+const float DIT_DAH_SPLIT_MS = 160;      // 2 units at 15 WPM. Dits up to 139, dahs from 180
+const float LETTER_GAP_MS = 250;         // gaps inside a letter up to 136, between letters from 427
+const float WORD_GAP_MS = 2500;          // gaps between letters up to 1458, pause between groups 3822
+
+// After this long with the key up, start a new line on serial.
+const unsigned long NEW_LINE_MS = 5000;
+
+// Temporary: print "down 85" and "up 120" for every press and gap, in ms, so
+// we can see how long they really are. Set to false to hide them.
+const bool DEBUG_TIMING = false;
+
 // Kept for sendText(), which is not used right now but will be later.
 const float WPM = 5;
 const char* MESSAGE = "VU";
@@ -39,6 +54,10 @@ int lastReading = HIGH;                  // raw pin value from the last pass
 unsigned long lastChangeMs = 0;          // when the raw value last changed
 bool keyDown = false;                    // the cleaned up, debounced state
 unsigned long keyDownStartMs = 0;        // when the current press began
+unsigned long keyUpStartMs = 0;          // when the current gap began
+
+KeyDecoder decoder(DIT_DAH_SPLIT_MS, LETTER_GAP_MS, WORD_GAP_MS);
+bool lineHasText = false;                // printed something since the last new line
 
 // The only thing loop() and the timer interrupt both touch. volatile tells
 // the compiler it can change at any moment, so it must read it fresh every time.
@@ -88,6 +107,29 @@ void sendCode(const char* code, const MorseTiming& t) {
     keyLed(true, code[i] == '.' ? t.dit : t.dah);
   }
   setLeds(false);
+}
+
+// Print what the decoder just finished, on the same line: the letter text
+// ("K", "<AR>" or "*") for a letter, and one space for a word gap.
+void printDecoded(const DecodeResult& r) {
+  if (r.letterDone) {
+    Serial.print(r.letter);
+    lineHasText = true;
+  }
+  if (r.wordDone) Serial.print(' ');
+}
+
+// One debug line like "down 85". Debug lines go on their own line, so if a
+// letter is waiting on the current line, end that line first.
+void printTiming(const char* label, unsigned long ms) {
+  if (!DEBUG_TIMING) return;
+  if (lineHasText) {
+    Serial.println();
+    lineHasText = false;
+  }
+  Serial.print(label);
+  Serial.print(' ');
+  Serial.println(ms);
 }
 
 // Send a whole text. Same gap rules as totalDurationMs() in the library.
@@ -160,14 +202,29 @@ void loop() {
       keyDown = pressed;
       setLeds(keyDown);
       setSidetone(keyDown);
+      // Both ends are seen 10 ms late, so the delays cancel out.
       if (keyDown) {
+        printDecoded(decoder.keyUp(now - keyUpStartMs));  // the gap just ended
+        printTiming("up", now - keyUpStartMs);
         keyDownStartMs = now;
       } else {
-        // Both ends are seen 10 ms late, so the delays cancel out.
-        Serial.print("key down ");
-        Serial.print(now - keyDownStartMs);
-        Serial.println(" ms");
+        decoder.keyDown(now - keyDownStartMs);
+        printTiming("down", now - keyDownStartMs);
+        keyUpStartMs = now;
       }
+    }
+  }
+
+  // While the key is up, tell the decoder how long the gap is so far, so a
+  // letter prints as soon as the gap reaches LETTER_GAP_MS, without waiting for
+  // the next press.
+  if (!keyDown) {
+    printDecoded(decoder.keyUp(now - keyUpStartMs));
+
+    // A long pause ends the line, but never prints empty lines.
+    if (lineHasText && now - keyUpStartMs >= NEW_LINE_MS) {
+      Serial.println();
+      lineHasText = false;
     }
   }
 }

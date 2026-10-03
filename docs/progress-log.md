@@ -1,5 +1,11 @@
 # Progress Log
 
+## Known issues
+
+- Decoder speed tuning parked on 3 Oct 2026. Some SOS sending still gives *.
+  Limits now: split 160 ms, letter gap 250 ms, word gap 2500 ms. Plan:
+  adaptive speed later, or retune from fresh debug logs.
+
 ## 2026-09-27 Phase 1, session 1: project setup
 
 Built:
@@ -386,3 +392,65 @@ Next:
 - Use morseCodeAt() in main.cpp so the ESP32 can send prosigns.
 - Then the Phase 2 decoder: time key presses, build a code, and use
   morseDecode() to show the character on serial and the OLED.
+
+## 2026-10-03 Phase 2 session 2 step 14: decode key presses on serial
+
+Built:
+- lib/key_decoder: a KeyDecoder with no Arduino code. keyDown(ms) adds a
+  dit (under 2 units) or a dah (2 units or more). keyUp(ms) is called again
+  and again while the key is up. At 2 units it finishes the letter, at 5
+  units it finishes the word, and each is reported only once per gap. It
+  uses morseDecode(), and an unknown code comes out as "*".
+- Receive speed is fixed at RX_WPM = 15, so 1 unit is 80 ms. A dah must be
+  at least 160 ms, a letter ends after 160 ms up, a word after 400 ms up.
+- main.cpp: sidetone, LEDs and debounce are unchanged. The "key down N ms"
+  print is gone. Letters print on one line as soon as they are decoded,
+  with no code: prosigns as their text like <AR>, unknown codes as "*". A
+  word gap prints one space. After 3 seconds with the key up, a new line
+  starts, but only if something was printed since the last new line.
+- 9 new native tests: K, VU, <AR>, a word gap between letters, uneven human
+  timing (CQ), the letter showing at exactly 2 units while the key is up,
+  no output before the first press, and unknown codes as "*". All 30 native
+  tests pass. The ESP32 build passes.
+- Board test of the first version: K, M and U decoded correctly. The output
+  had one letter and its code per line, which did not read like words, so
+  the printing was changed to the one line form above.
+- Second board test: SOS sent slowly printed "S MT S". Presses were about
+  15 WPM, but a gap inside O was over 160 ms, so O split into M and T, and
+  the letter gaps were over 400 ms, so they printed as word spaces.
+- Added DEBUG_TIMING = true in main.cpp (temporary). It prints "down N" for
+  each press and "up N" for each gap, in ms, so the real timings can be
+  measured. The decoder is unchanged.
+- Timing test of the owner's hand, two SOS groups (ms): dits 45 to 139,
+  dahs 180 to 325, gaps inside a letter 58 to 136, gaps between letters
+  427, 618, 1370 and 1458, pause between the two groups 3822. SOS decoded,
+  but a space printed after every letter, because every letter gap was over
+  the 400 ms word limit. (A first reading took 1370 and 1458 for pauses
+  between groups. They were really gaps between S and O.)
+- The decoder now takes three limits in ms instead of one WPM:
+  DIT_DAH_SPLIT_MS = 160, LETTER_GAP_MS = 250, WORD_GAP_MS = 2500. They are
+  named constants in main.cpp. Each sits in the empty space between two of
+  the measured ranges. NEW_LINE_MS went from 3000 to 5000, so a new line
+  does not start inside a normal pause.
+- Native decoder tests updated for the new limits, plus a test that feeds
+  the real SOS SOS log and must give "SOS SOS" with one space between the
+  groups, and a test of the exact edge of each limit. All 33 native tests
+  pass. The ESP32 build passes.
+- Board test with these limits: SOS mostly decodes, but sometimes gives *.
+  Speed tuning is parked, see Known issues at the top of this file.
+- DEBUG_TIMING set to false for normal use. Set it to true to see the
+  press and gap times again.
+
+Learned:
+- A decoder only needs to measure time. Short press or long press gives dit
+  or dah. Short gap, medium gap or long gap says what comes next.
+- Putting the cut offs halfway between the ideal lengths (2 units between a
+  1 unit dit and a 3 unit dah) gives room for an uneven fist.
+- A real hand is not a textbook. Mine sends presses near 15 WPM but leaves
+  gaps of up to 1.5 seconds between letters, which is natural Farnsworth
+  spacing. Measuring first, then putting each limit in the empty space
+  between two ranges, works better than guessing a speed.
+
+Next:
+- Show the decoded text on the OLED.
+- Later: adaptive speed in the decoder, or retune from fresh debug logs.
