@@ -1,21 +1,28 @@
-// Phase 2, Session 1, Step 9: sidetone on a passive buzzer.
-// While the button on GPIO 27 is held, a 600 Hz tone plays on GPIO 25 and both
-// LEDs are on. On each release the time it was held is printed over serial.
+// Phase 2, Session 2, Step 11: clean sine wave sidetone from the DAC.
+// While the button on GPIO 27 is held, a 600 Hz sine tone with a 5 ms fade in
+// and fade out plays on GPIO 25 (DAC1), and both LEDs are on. On each release
+// the time it was held is printed over serial.
 
 #include <Arduino.h>
+#include <soc/rtc_io_reg.h>
 #include <morse.h>
+#include <sidetone.h>
 
 // Pins, from the pin map in CLAUDE.md and docs/hardware-notes.md
 const int ONBOARD_LED_PIN = 2;           // the blue LED built into the DevKit V1
 const int LED_PIN = 26;                  // external LED on the breadboard
 const int KEY_PIN = 27;                  // button to GND, INPUT_PULLUP
-const int SIDETONE_PIN = 25;             // 330 ohm resistor, then passive buzzer to GND
+const int SIDETONE_PIN = 25;             // DAC1, to PAM8403 input L
 
-// Sidetone, made by the LEDC (PWM) hardware so the CPU is free.
-const int SIDETONE_HZ = 600;             // default pitch from the timing spec
-const int SIDETONE_CHANNEL = 0;          // one of the 16 LEDC channels
-const int SIDETONE_BITS = 8;             // duty goes from 0 to 255
-const int SIDETONE_DUTY_ON = 128;        // half the time high, half low: a square wave
+// Sidetone, from the timing spec in CLAUDE.md
+const float SIDETONE_HZ = 600;
+const float RAMP_MS = 5;                 // fade in and fade out, stops clicks
+
+// A hardware timer asks for one new DAC value 40,000 times a second.
+const int SAMPLE_RATE_HZ = 40000;
+const int SAMPLE_TIMER = 0;              // one of the 4 hardware timers
+const int TIMER_DIVIDER = 80;            // 80 MHz / 80 = 1 tick per microsecond
+const int TIMER_TICKS = 1000000 / SAMPLE_RATE_HZ;  // 25 microseconds per sample
 
 // A reading must stay the same this long before we believe it.
 const unsigned long DEBOUNCE_MS = 10;
@@ -30,16 +37,37 @@ unsigned long lastChangeMs = 0;          // when the raw value last changed
 bool keyDown = false;                    // the cleaned up, debounced state
 unsigned long keyDownStartMs = 0;        // when the current press began
 
+// The only thing loop() and the timer interrupt both touch. volatile tells
+// the compiler it can change at any moment, so it must read it fresh every time.
+volatile bool toneOn = false;
+
+// Set up once in setup() before the timer starts, then used only by the
+// interrupt, so it does not need to be volatile. As a global it lives in RAM.
+SidetoneGenerator sidetone;
+hw_timer_t* sampleTimer = nullptr;
+
+// Put a value straight into the DAC1 output register: 8 bits starting at
+// bit 19. This is what dac_output_voltage() does in the end, without the lock
+// and the checks, and it is inline so it ends up in IRAM with its caller.
+inline void IRAM_ATTR writeDac1(uint8_t value) {
+  SET_PERI_REG_BITS(RTC_IO_PAD_DAC1_REG, RTC_IO_PDAC1_DAC, value, RTC_IO_PDAC1_DAC_S);
+}
+
+// Runs 40,000 times a second, in between whatever loop() is doing. It must be
+// short and use whole numbers only, so all the maths is in the tables.
+void IRAM_ATTR onSampleTimer() {
+  writeDac1(sidetone.nextSample(toneOn));
+}
+
 // Both LEDs always switch together, so they show the same Morse.
 void setLeds(bool on) {
   digitalWrite(ONBOARD_LED_PIN, on ? HIGH : LOW);
   digitalWrite(LED_PIN, on ? HIGH : LOW);
 }
 
-// Duty 0 holds the pin LOW all the time. No pulses means no sound and no hum,
-// and no current flows through the buzzer while the key is up.
+// Only sets a flag. The timer interrupt does the fade in or fade out.
 void setSidetone(bool on) {
-  ledcWrite(SIDETONE_CHANNEL, on ? SIDETONE_DUTY_ON : 0);
+  toneOn = on;
 }
 
 // Turn the LEDs on or off and hold them for a time. delay() only takes whole
@@ -95,10 +123,18 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   pinMode(KEY_PIN, INPUT_PULLUP);
 
-  // Set the timer to 600 Hz once, link it to the pin, and start silent.
-  ledcSetup(SIDETONE_CHANNEL, SIDETONE_HZ, SIDETONE_BITS);
-  ledcAttachPin(SIDETONE_PIN, SIDETONE_CHANNEL);
-  setSidetone(false);
+  // The DAC starts at 0 V, but silence is the middle level, 128. Jumping
+  // straight there would thump the speaker once, so slide up over 0.5 s.
+  for (int level = 0; level <= DAC_MID; level++) {
+    dacWrite(SIDETONE_PIN, level);  // also switches the DAC on, setup only
+    delay(4);
+  }
+
+  sidetone.begin(SIDETONE_HZ, SAMPLE_RATE_HZ, RAMP_MS);
+  sampleTimer = timerBegin(SAMPLE_TIMER, TIMER_DIVIDER, true);
+  timerAttachInterrupt(sampleTimer, &onSampleTimer, false);  // false: level, the only kind this core supports
+  timerAlarmWrite(sampleTimer, TIMER_TICKS, true);  // true: repeat forever
+  timerAlarmEnable(sampleTimer);
 }
 
 // No delay() here, so loop() runs thousands of times a second and never

@@ -274,3 +274,53 @@ Next:
 - The 5 ms rise and fall ramp from the spec, now that the speaker can show
   any clicks.
 - Before the Phase 2 decoder work, add the prosigns to the C++ library.
+
+## 2026-10-03 Phase 2 session 2 step 11: sine wave sidetone with 5 ms ramp
+
+Built:
+- Checked the core: this PlatformIO project uses Arduino-ESP32 2.0.17. So the
+  timer uses timerBegin(num, divider, countUp), timerAttachInterrupt,
+  timerAlarmWrite and timerAlarmEnable. The DAC is switched on with dacWrite()
+  in setup() only. The timer interrupt writes the DAC1 register directly
+  (8 bits at bit 19 of RTC_IO_PAD_DAC1_REG), which is fast and IRAM-safe.
+- IRAM safety: onSampleTimer() and nextSample() are IRAM_ATTR, the register
+  write is inline, the sine and fade tables are arrays inside a global object
+  in RAM, and toneOn is volatile. Checked in the built firmware: both
+  functions sit in IRAM, the tables in RAM, and the interrupt calls nothing
+  in flash. The divide by 255 became a multiply, so no hidden helper call.
+- firmware/lib/sidetone: envelopeRise() and envelopeFall() (raised cosine,
+  the same shape as audio.py) and a SidetoneGenerator that makes one 8 bit DAC
+  value per sample from a 256 step sine table and a 200 step envelope table.
+  Silence is the middle level, 128. No floats in nextSample(), because floats
+  are not safe inside an ESP32 interrupt.
+- firmware/test/test_sidetone: 6 native tests. The envelope is 0 at 0 ms,
+  half at 2.5 ms and full at 5 ms, and the reverse for the fall. Silence is
+  always 128, the tone starts gently and reaches the full range after 5 ms,
+  it is back at exactly 128 5 ms after release, and one second of samples has
+  600 waves. All 14 native tests pass.
+- main.cpp: LEDC removed from GPIO 25. Hardware timer 0 runs at 40 kHz and
+  writes each sample to DAC1 (GPIO 25). At start up the DAC slides from 0 to
+  128 over 0.5 s to avoid a thump. Debounce, LEDs and the "key down N ms"
+  print are unchanged.
+- The ESP32 build passes.
+- Tested on real hardware: no thump at start up, and the tone starts and
+  stops with a smooth soft fade, no clicks from the speaker. A very faint
+  hiss when silent, fine for now.
+- The only click left is the tactile button's own mechanical click. Turning
+  the volume fully down confirmed it does not come from the speaker.
+- The sine sounds softer than the old square wave. The owner prefers a
+  slightly brighter tone, details to follow.
+
+Learned:
+- A DAC turns a number into a voltage. The ESP32 DAC is 8 bit, so 0 to 255
+  gives about 0 to 3.3 V.
+- A sine table plus a phase counter makes any pitch. At 40 kHz and 600 Hz,
+  each wave is about 67 samples long.
+- The raised cosine envelope fades the tone in and out, which removes the
+  click that a sudden start or stop makes.
+
+Next:
+- A slightly brighter tone, closer to the old square wave. Details to come.
+- Maybe attach the timer with ESP_INTR_FLAG_IRAM so the tone keeps playing
+  while flash is busy. Check the whole interrupt chain first.
+- Before the Phase 2 decoder work, add the prosigns to the C++ library.

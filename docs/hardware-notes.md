@@ -79,8 +79,18 @@ ESP32 DevKit V1, 30 pin. The same table is in CLAUDE.md. Keep both in step.
   input capacitors on the module handle the 3.3 V square wave from GPIO 25.
 - Soldering: header pins soldered on the PAM8403, all neighbouring pairs
   checked with the multimeter for bridges. Speaker wires soldered to its pads.
-- Code: unchanged from the buzzer step. LEDC at 600 Hz, duty 128 for sound,
-  duty 0 for silence.
+- Code (from 2026-10-03, step 11): the sidetone uses the ESP32 DAC on
+  GPIO 25 (DAC1), not LEDC. A 600 Hz sine wave at 40 kHz from a hardware
+  timer, with a 5 ms raised cosine fade in and fade out. Silence is DAC level
+  128 (about 1.65 V). At start up the DAC slides from 0 to 128 over 0.5 s.
+  The module's input capacitors block this steady 1.65 V, so only the tone
+  reaches the speaker.
+- Step 10 used LEDC at 600 Hz, duty 128 for sound and duty 0 for silence.
 - Tested 2026-10-03: a clear, loud 600 Hz tone while the key is held, silent
   on release, volume knob at about half. Nothing gets hot and the ESP32 does
   not restart.
+- Tested 2026-10-03 with the DAC sine sidetone: no thump at start up, a
+  smooth soft fade at the start and end of each tone, no clicks from the
+  speaker. A very faint hiss when silent, from the 8 bit DAC, fine for now.
+  The only click is the tactile button's own mechanical click, confirmed with
+  the volume turned fully down.
