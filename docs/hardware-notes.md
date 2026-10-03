@@ -59,4 +59,28 @@ ESP32 DevKit V1, 30 pin. The same table is in CLAUDE.md. Keep both in step.
 - Tested 2026-10-03: a 600 Hz tone plays while the key is held, silent when
   released, LEDs follow, nothing gets warm. Very quiet through the resistor.
   2500 Hz was only a little louder, so the low current is the limit.
-- Next: the PAM8403 amplifier and the 8 ohm speaker, to make it louder.
+- Replaced 2026-10-03 by the PAM8403 and speaker below. The buzzer is
+  removed. The 330 ohm resistor is still in rows 4 to 6 but no longer used.
+
+### PAM8403 amplifier and speaker for the sidetone
+- Parts: PAM8403 module with a B50K volume knob, 8 ohm 1 W speaker
+  (measured 7.8 ohm).
+- Power: ESP32 VIN to the right red (+) rail, which gives 5 V from USB.
+  PAM8403 Power + (white wire) to the red rail, Power - (black wire) to the
+  blue GND rail. The right red rail is 5 V, so never use it for 3.3 V parts
+  like the OLED.
+- Input: PAM8403 input L to row 4 (GPIO 25), input G to the blue GND rail,
+  input R unused.
+- Output: PAM8403 Lout + to row 10 (a to e) with speaker +, Lout - to row 13
+  (a to e) with speaker -.
+- Lout - is not GND. The PAM8403 drives both speaker wires, so Lout - must
+  never touch the GND rail.
+- No extra divider or capacitor on the input. The B50K volume knob and the
+  input capacitors on the module handle the 3.3 V square wave from GPIO 25.
+- Soldering: header pins soldered on the PAM8403, all neighbouring pairs
+  checked with the multimeter for bridges. Speaker wires soldered to its pads.
+- Code: unchanged from the buzzer step. LEDC at 600 Hz, duty 128 for sound,
+  duty 0 for silence.
+- Tested 2026-10-03: a clear, loud 600 Hz tone while the key is held, silent
+  on release, volume knob at about half. Nothing gets hot and the ESP32 does
+  not restart.

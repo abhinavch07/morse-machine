@@ -243,3 +243,34 @@ Next:
 - The 5 ms rise and fall ramp from the spec is not done yet. A square wave on
   a buzzer cannot fade smoothly, so it fits better with the PAM8403 speaker.
 - Before the Phase 2 decoder work, add the prosigns to the C++ library.
+
+## 2026-10-03 Phase 2 session 2 step 10: PAM8403 amplifier and speaker
+
+Built:
+- First soldering session. Header pins soldered on the PAM8403 module, then
+  every neighbouring pair of pins checked with the multimeter for solder
+  bridges. Wires soldered to the speaker pads.
+- Sidetone moved from the buzzer to a PAM8403 amplifier and an 8 ohm 1 W
+  speaker (measured 7.8 ohm). The buzzer is removed.
+- The PAM8403 runs on 5 V from the ESP32 VIN pin through the right red rail.
+  Its input L takes GPIO 25 directly, through its B50K volume knob.
+- No code change. The step 9 LEDC sidetone drives the amplifier as it is.
+- Tested on real hardware: a clear, loud 600 Hz tone while the key is held,
+  silent on release, volume knob at about half. Nothing gets hot and the
+  ESP32 does not restart. Wiring noted in docs/hardware-notes.md.
+
+Learned:
+- How to solder header pins, and to check every pair for bridges with the
+  multimeter before powering up.
+- The ESP32 VIN pin gives the 5 V from USB, for parts that need more than
+  3.3 V.
+- Lout - on the PAM8403 is not GND. The amplifier drives both speaker wires,
+  so the speaker must connect only to Lout + and Lout -.
+- The quiet buzzer was limited by the current a GPIO pin can give. The
+  amplifier takes its power from 5 V instead, so the pin only has to send
+  the signal.
+
+Next:
+- The 5 ms rise and fall ramp from the spec, now that the speaker can show
+  any clicks.
+- Before the Phase 2 decoder work, add the prosigns to the C++ library.
