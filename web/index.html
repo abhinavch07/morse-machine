@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Morse Machine</title>
+<style>
+  :root {
+    --bg: #f6f5f1;
+    --panel: #ffffff;
+    --text: #1d1d1b;
+    --muted: #6b6a66;
+    --line: #dddad2;
+    --key: #2f5d50;
+    --key-down: #d9822b;
+    --ok: #2e7d32;
+    --off: #9e9e9e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161614;
+      --panel: #22221f;
+      --text: #ecebe6;
+      --muted: #a3a29c;
+      --line: #3a3934;
+      --key: #3f7a69;
+      --key-down: #e8964a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    touch-action: manipulation;  /* no double tap zoom on phones */
+  }
+  main {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 12px 16px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  header { display: flex; align-items: center; justify-content: space-between; }
+  h1 { font-size: 1.25rem; margin: 0; }
+  h2 {
+    font-size: 0.95rem;
+    margin: 0 0 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--muted);
+  }
+  .status { font-size: 0.9rem; display: flex; align-items: center; gap: 6px; }
+  .status::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--off);
+  }
+  .status.on::before { background: var(--ok); }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row label { flex: 1; display: flex; align-items: center; gap: 8px; }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--text);
+  }
+  input[type="range"] { flex: 1; }
+  button {
+    font: inherit;
+    padding: 8px 18px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--key);
+    color: #fff;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.clear {
+    padding: 2px 10px;
+    font-size: 0.8rem;
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--line);
+  }
+  /* The big round key. touch-action none stops the page scrolling while it
+     is held, and the user-select and touch-callout lines stop the phone
+     selecting text or showing its long press menu. */
+  .key {
+    width: min(60vw, 220px);
+    height: min(60vw, 220px);
+    margin: 4px auto;
+    border-radius: 50%;
+    font-size: 1.2rem;
+    letter-spacing: 0.1em;
+    background: var(--key);
+    box-shadow: 0 6px 0 rgba(0, 0, 0, 0.25);
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .key.down {
+    background: var(--key-down);
+    transform: translateY(4px);
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+  }
+  .hint { margin: 0; text-align: center; color: var(--muted); font-size: 0.9rem; }
+  .text {
+    min-height: 4.5em;
+    max-height: 9em;
+    overflow-y: auto;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 1.05rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .code {
+    min-height: 1.4em;
+    margin-top: 4px;
+    font-family: ui-monospace, Menlo, monospace;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Morse Machine</h1>
+    <span id="status" class="status">Disconnected</span>
+  </header>
+
+  <div class="row">
+    <label>Name <input id="name" type="text" maxlength="16" autocomplete="off" spellcheck="false"></label>
+    <button id="start">Start</button>
+  </div>
+
+  <div class="row">
+    <label>Volume <input id="volume" type="range" min="0" max="1" step="0.01" value="0.5"></label>
+  </div>
+
+  <button id="key" class="key" disabled>KEY</button>
+  <p class="hint">Hold the space bar, or press and hold the round key.</p>
+
+  <section>
+    <h2>I sent <button class="clear" data-box="sent">Clear</button></h2>
+    <div id="sent" class="text"></div>
+    <div id="code" class="code"></div>
+  </section>
+
+  <section>
+    <h2>Received <button class="clear" data-box="received">Clear</button></h2>
+    <div id="received" class="text"></div>
+  </section>
+</main>
+
+<script type="module">
+import { KeyDecoder, Playout, STUCK_KEY_MS } from "./morse.js";
+
+const MY_TONE_HZ = 600;      // my own keying, the default sidetone in CLAUDE.md
+const REMOTE_TONE_HZ = 700;  // other people, so I can tell them from me
+const RAMP_S = 0.005;        // 5 ms fade in and fade out, stops clicks
+const TONE_LEVEL = 0.3;      // loudness of one tone before the volume slider, leaves room for two at once
+const RELAY_PORT = 8765;
+const RECONNECT_MS = 2000;
+const TICK_MS = 20;          // how often to check gaps that are still growing
+const MAX_TEXT = 2000;       // keep only the newest letters in each box
+
+const $ = (id) => document.getElementById(id);
+const keyButton = $("key");
+
+// A finger as the main pointer means a phone or tablet.
+const onPhone = matchMedia("(pointer: coarse)").matches;
+$("name").value = onPhone ? "phone" : "laptop";
+
+let audio = null;       // the Web Audio context, made when Start is tapped
+let master = null;      // volume, every tone goes through it
+let myVoice = null;
+let socket = null;
+let started = false;
+
+// ---- Sound ----
+
+// One tone that is always playing, with its loudness at 0 until keyed.
+// Fading the loudness up and down is what makes a smooth, click free tone.
+function makeVoice(hz) {
+  const osc = audio.createOscillator();
+  osc.frequency.value = hz;
+  const gain = audio.createGain();
+  gain.gain.value = 0;
+  osc.connect(gain).connect(master);
+  osc.start();
+  return { gain: gain.gain, level: 0 };
+}
+
+// Fade a tone on or off over 5 ms, starting at audio clock time "at".
+function fade(voice, on, at) {
+  const target = on ? TONE_LEVEL : 0;
+  voice.gain.setValueAtTime(voice.level, at);
+  voice.gain.linearRampToValueAtTime(target, at + RAMP_S);
+  voice.level = target;
+}
+
+// The audio clock and performance.now() run separately. This turns a
+// performance.now() time into audio clock time, so a received tone can be
+// planned ahead and start exactly on time, even if the page is busy.
+function audioTimeAt(perfMs) {
+  const stamp = audio.getOutputTimestamp ? audio.getOutputTimestamp() : null;
+  const t = stamp && stamp.performanceTime > 0
+    ? stamp.contextTime + (perfMs - stamp.performanceTime) / 1000
+    : audio.currentTime + (perfMs - performance.now()) / 1000;
+  return Math.max(t, audio.currentTime);
+}
+
+$("volume").addEventListener("input", (e) => {
+  if (master) master.gain.setTargetAtTime(Number(e.target.value), audio.currentTime, 0.01);
+});
+
+// ---- Text boxes ----
+
+function append(box, text) {
+  const el = $(box);
+  el.textContent = (el.textContent + text).slice(-MAX_TEXT);
+  el.scrollTop = el.scrollHeight;
+}
+
+for (const button of document.querySelectorAll(".clear")) {
+  button.addEventListener("click", () => {
+    $(button.dataset.box).textContent = "";
+    if (button.dataset.box === "received") lastReceivedFrom = null;
+  });
+}
+
+// ---- My keying ----
+
+const myDecoder = new KeyDecoder();
+let myDown = false;
+let myLastChange = null;  // performance.now() of my last press or release
+
+function showSent(result) {
+  if (result.letterDone) append("sent", result.letter);
+  if (result.wordDone) append("sent", " ");
+  showCode();
+}
+
+// The dits and dahs of the letter I am keying now, like ". -".
+function showCode() {
+  $("code").textContent = myDecoder.currentCode().split("").join(" ");
+}
+
+function setMyKey(down) {
+  if (!started || down === myDown) return;
+  myDown = down;
+  const t = Math.round(performance.now());
+
+  fade(myVoice, down, audio.currentTime);
+  keyButton.classList.toggle("down", down);
+  send(down ? "down" : "up", t);
+
+  if (down) {
+    if (myLastChange !== null) showSent(myDecoder.keyUp(t - myLastChange));  // the gap just ended
+  } else {
+    myDecoder.keyDown(t - myLastChange);
+    showCode();
+  }
+  myLastChange = t;
+}
+
+// Space bar. e.repeat is true for the extra keydowns the keyboard sends
+// while a key is held, so those are ignored. preventDefault stops the page
+// scrolling. Typing a space in the name box still works.
+function isSpaceForKey(e) {
+  return e.code === "Space" && e.target !== $("name");
+}
+document.addEventListener("keydown", (e) => {
+  if (!isSpaceForKey(e)) return;
+  e.preventDefault();
+  if (!e.repeat) setMyKey(true);
+});
+document.addEventListener("keyup", (e) => {
+  if (!isSpaceForKey(e)) return;
+  e.preventDefault();
+  setMyKey(false);
+});
+
+// The round key. Pointer events cover mouse, finger and pen. Capturing the
+// pointer keeps the key down even if the finger slides a little. Every way a
+// press can end lets the key go, so it can never stay stuck down.
+keyButton.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0) return;  // main button or a finger only
+  e.preventDefault();
+  keyButton.setPointerCapture(e.pointerId);
+  setMyKey(true);
+});
+for (const type of ["pointerup", "pointercancel", "pointerleave", "lostpointercapture"]) {
+  keyButton.addEventListener(type, () => setMyKey(false));
+}
+keyButton.addEventListener("contextmenu", (e) => e.preventDefault());
+
+// Switching to another tab or app while keying must not leave the key down.
+window.addEventListener("blur", () => setMyKey(false));
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) setMyKey(false);
+});
+
+// ---- Relay connection ----
+
+function myName() {
+  return $("name").value.trim() || (onPhone ? "phone" : "laptop");
+}
+
+function send(type, t) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type, t, from: myName() }));
+  }
+}
+
+function setStatus(connected) {
+  $("status").textContent = connected ? "Connected" : "Disconnected";
+  $("status").classList.toggle("on", connected);
+}
+
+// The relay runs on the same computer that serves this page, so use the
+// page's own host name. No IP address is written in the code.
+function relayUrl() {
+  let host = location.hostname || "localhost";
+  if (host.includes(":")) host = `[${host}]`;  // an IPv6 address needs brackets
+  return `ws://${host}:${RELAY_PORT}`;
+}
+
+function connect() {
+  socket = new WebSocket(relayUrl());
+  socket.addEventListener("open", () => setStatus(true));
+  socket.addEventListener("message", (m) => receive(m.data));
+  // close also comes after a failed attempt, so this one place retries both.
+  socket.addEventListener("close", () => {
+    setStatus(false);
+    setTimeout(connect, RECONNECT_MS);
+  });
+}
+
+// ---- Received keying ----
+
+const playout = new Playout();
+const senders = new Map();  // name to that sender's tone, decoder and state
+let lastReceivedFrom = null;
+
+function getSender(name) {
+  if (!senders.has(name)) {
+    senders.set(name, {
+      name,
+      voice: makeVoice(REMOTE_TONE_HZ),
+      decoder: new KeyDecoder(),
+      // Sound, set when an event is planned:
+      toneDownAt: null,   // planned play time of the latest down
+      toneUpAt: null,     // planned play time of the up after it
+      // Decoding, set when an event is played:
+      down: false,
+      lastT: null,        // sender's t of the last event decoded
+      upAt: null,         // our time when the last up was played
+      pending: 0,         // events planned but not played yet
+    });
+  }
+  return senders.get(name);
+}
+
+function receive(text) {
+  let event;
+  try {
+    event = JSON.parse(text);
+  } catch {
+    return;
+  }
+  if (!event || (event.type !== "down" && event.type !== "up") || typeof event.t !== "number") return;
+
+  const s = getSender(String(event.from ?? "?").slice(0, 16));
+  const now = performance.now();
+  const { playAt } = playout.schedule(s.name, event.t, now);
+
+  planTone(s, event.type, playAt);
+  s.pending++;
+  setTimeout(() => {
+    s.pending--;
+    decodeReceived(s, event.type, event.t);
+  }, Math.max(0, playAt - now));
+}
+
+// Plan the tone on the audio clock now, so it starts exactly at playAt.
+function planTone(s, type, playAt) {
+  if (type === "down") {
+    if (s.toneDownAt !== null && s.toneUpAt === null) return;  // already down
+    s.toneDownAt = playAt;
+    s.toneUpAt = null;
+    fade(s.voice, true, audioTimeAt(playAt));
+    const downAt = playAt;
+    setTimeout(() => stopIfStuck(s, downAt), playAt + STUCK_KEY_MS - performance.now());
+  } else {
+    if (s.toneDownAt === null || s.toneUpAt !== null) return;  // already up
+    s.toneUpAt = playAt;
+    // Over STUCK_KEY_MS, stopIfStuck() has already silenced it.
+    if (playAt - s.toneDownAt <= STUCK_KEY_MS) fade(s.voice, false, audioTimeAt(playAt));
+  }
+}
+
+// A remote key held over 2 seconds is probably stuck (a lost "up" message or
+// a dropped connection), so stop the tone. The text still decodes when the
+// "up" finally comes.
+function stopIfStuck(s, downAt) {
+  const sameDown = s.toneDownAt === downAt;
+  const noUpInTime = s.toneUpAt === null || s.toneUpAt - downAt > STUCK_KEY_MS;
+  if (sameDown && noUpInTime && s.voice.level > 0) fade(s.voice, false, audio.currentTime);
+}
+
+// Decode from the sender's own t values, so network delays cannot change the
+// press and gap lengths at all.
+function decodeReceived(s, type, t) {
+  if (type === "down") {
+    if (s.down) return;
+    s.down = true;
+    if (s.lastT !== null) showReceived(s, s.decoder.keyUp(t - s.lastT));
+  } else {
+    if (!s.down) return;  // an up with no down, for example we joined mid press
+    s.down = false;
+    s.decoder.keyDown(t - s.lastT);
+    s.upAt = performance.now();
+  }
+  s.lastT = t;
+}
+
+function showReceived(s, result) {
+  if (result.letterDone) {
+    if (lastReceivedFrom !== s.name) {
+      const newLine = $("received").textContent ? "\n" : "";
+      append("received", `${newLine}${s.name}: `);
+      lastReceivedFrom = s.name;
+    }
+    append("received", result.letter);
+  }
+  if (result.wordDone && lastReceivedFrom === s.name) append("received", " ");
+}
+
+// Gaps that are still growing: finish a letter or word as soon as the gap is
+// long enough, without waiting for the next press, like the ESP32.
+setInterval(() => {
+  const now = performance.now();
+  if (started && !myDown && myLastChange !== null) showSent(myDecoder.keyUp(now - myLastChange));
+  for (const s of senders.values()) {
+    // If the next event is already planned, it will give the exact gap.
+    if (!s.down && s.upAt !== null && s.pending === 0) {
+      showReceived(s, s.decoder.keyUp(now - s.upAt));
+    }
+  }
+}, TICK_MS);
+
+// ---- Start ----
+
+// Phones only allow sound after a tap, so the audio is made here.
+$("start").addEventListener("click", async () => {
+  if (started) return;
+  audio = new (window.AudioContext || window.webkitAudioContext)();
+  await audio.resume();
+  master = audio.createGain();
+  master.gain.value = Number($("volume").value);
+  master.connect(audio.destination);
+  myVoice = makeVoice(MY_TONE_HZ);
+
+  started = true;
+  $("start").disabled = true;
+  $("start").textContent = "Started";
+  $("start").blur();  // so the space bar keys, not presses Start again
+  keyButton.disabled = false;
+  connect();
+});
+</script>
+</body>
+</html>

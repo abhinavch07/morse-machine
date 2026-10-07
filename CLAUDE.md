@@ -50,6 +50,8 @@ The owner (Abhinav) is a beginner in electronics and Morse. Treat every task as 
 - Always use a project virtual environment: `python3.13 -m venv .venv` then `source .venv/bin/activate`.
 - Homebrew no longer supports Intel Macs. Do not suggest `brew install` for Python or other tools. Prefer pip inside the venv, official installers, or ask first.
 - Do not suggest tools that need Apple Silicon.
+- Node.js 22 (installed with nvm) is used only to run the JavaScript tests for `web/`, with its built-in test runner: `node --test tests/morse_js.test.mjs`. No npm packages. The web page itself needs no Node and no build step.
+- macOS firewall: Python must be allowed incoming connections, or the phone and ESP32 cannot reach the relay or the web page. See `docs/setup-notes.md`.
 
 ## Tech stack
 | Area | Choice | Why |
@@ -68,6 +70,7 @@ morse-machine/
     progress-log.md
     learning-notes.md      # Morse and radio theory notes, ASOC topics marked
     hardware-notes.md      # circuits, pin maps, photos, parts bought
+    setup-notes.md         # Mac setup: firewall, running the relay and web page
   morse_core/              # Python: encode, decode, timing, audio
   trainer/                 # Python: Koch trainer, fist analyser
   firmware/                # PlatformIO project for ESP32

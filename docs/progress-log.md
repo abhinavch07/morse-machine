@@ -589,3 +589,63 @@ Next:
   WiFi. macOS may ask whether Python may accept incoming connections. Say
   Allow.
 - Then the browser client in web/, or the ESP32 sending key events.
+
+## 2026-10-07 Phase 3, session 2: browser page in web/
+
+Built:
+- web/morse.js: the Morse table (plain JSON between two marker lines, same
+  order as morse_core), a KeyDecoder with the same rules and limits as the
+  ESP32 (split 160 ms, letter gap 250 ms, word gap 2500 ms), and a Playout
+  class that works out when to play each received event. No page or sound
+  code, so it can be tested.
+- web/index.html: one page with no build step. A Start button unlocks sound
+  and connects to ws://<page host>:8765, retrying every 2 seconds, with
+  Connected or Disconnected shown. A name box defaults to "laptop" or
+  "phone". Keying with the space bar (key repeat ignored, no scrolling) or
+  a big round button (pointer events, works with finger or mouse, no text
+  selection or long press menu). My tone is 600 Hz, received tones are
+  700 Hz, both with 5 ms fades, and a volume slider. Received events play
+  200 ms after they were sent, per sender, and a late event resets that
+  sender's delay. A remote key held over 2 seconds is silenced. Two text
+  boxes: "I sent" with the code being keyed under it, and "Received" with
+  each sender's name at the start of their line.
+- tests/test_web_morse_table.py: checks the table in morse.js matches
+  morse_core exactly, in the same order. Tested by breaking K on purpose,
+  and the test failed as it should.
+- tests/morse_js.test.mjs: 14 tests with Node's built-in test runner,
+  nothing to install. Run with: node --test tests/morse_js.test.mjs
+- All 74 Python tests and 14 Node tests pass.
+- Checked in headless Chrome with two pages through the relay: K keyed with
+  the space bar on one page decoded as "laptop: K" on the other, and T keyed
+  with the round button came back as "second: T". No errors, no scrolling.
+- To open it on the phone, serve the web folder from the project folder:
+  python3.13 -m http.server 8000 --bind 0.0.0.0 --directory web
+  Then open http://<Mac WiFi IP>:8000 on the phone, with the relay running.
+- Laptop and phone test passed on 2026-10-08: both connect, keying works in
+  both directions with correct decoding, the tones are clean, the phone key
+  works with no scrolling or long press menu, and both pages reconnect after
+  the relay restarts.
+- The phone could only reach the Mac after allowing Python.app in the macOS
+  firewall. The fix is in the new docs/setup-notes.md, with a note that the
+  Mac's IP can change, so it is read from the relay at start up.
+- CLAUDE.md now lists Node.js 22, used only for the JavaScript tests.
+
+Learned:
+- Phones only allow sound after a tap, which is why there is a Start button.
+- Each device has its own clock, so a received t means nothing alone. The
+  gap between two t values from the same sender is true. Remembering one
+  offset per sender turns their times into ours.
+- A playout delay (a small buffer, like a video stream uses) trades 200 ms
+  of lag for an even rhythm when the network is uneven.
+- The audio clock is separate from performance.now(). Planning a tone on the
+  audio clock makes it start exactly on time, even if the page is busy.
+- Decoding received keying from the sender's t values means network delays
+  cannot change the decoded text at all.
+
+- A firewall can block a program even when the network is fine. Testing
+  from the Mac itself passed, because the firewall only checks connections
+  coming from other devices.
+
+Next:
+- The ESP32 sending key events to the relay and playing received events
+  as sidetone.
