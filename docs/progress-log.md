@@ -544,3 +544,48 @@ Next:
   press limit.
 - Build the DIY straight key, then later the touch paddle on GPIO 32 and 33.
 
+
+## 2026-10-07 Phase 3, session 1: WebSocket relay server
+
+Built:
+- Installed websockets 17.2 in the venv. New requirements.txt lists what the
+  project needs to run (websockets). requirements-dev.txt now starts with
+  "-r requirements.txt", so one install gives both.
+- relay/server.py: listens on 0.0.0.0 port 8765, so devices on the home WiFi
+  can connect. At start up it prints the Mac's WiFi address, like
+  "Relay ready. Connect to ws://192.168.1.23:8765". Every key event goes to
+  all other clients unchanged, never back to the sender. A message that is
+  not a JSON object with a "type" field is logged as "drop" and not sent on.
+  Each connect, disconnect and message is one short line in the terminal.
+- relay/demo_client.py: connects, keys K at 15 WPM as down and up events
+  using text_to_key_events() from morse_core, then listens and prints what
+  it receives. Run it with: python -m relay.demo_client (add --url and
+  --name to change the address or the name in each event).
+- tests/test_relay.py: 11 tests. A message from A reaches B and not A, a
+  message reaches every other client, bad messages are dropped, a client
+  that leaves is forgotten, a sudden disconnect is not an error, and checks
+  of the message filter. All 71 Python tests pass.
+- Tried it on the Mac with the relay and two demo clients: each client
+  received exactly the other's six events, and none of its own.
+- Fixed during that run: a client that left with Ctrl+C made the relay print
+  a long error. The ESP32 will do the same whenever its WiFi drops, so the
+  relay now logs it as one "disconnect (suddenly)" line. A test cuts a
+  connection with no goodbye to check this.
+
+Learned:
+- A WebSocket is a connection that stays open, so both sides can send at any
+  moment. Plain web requests only answer when asked.
+- A relay does not need to understand Morse. It only passes key events on.
+  Each receiver turns them back into tone and timing.
+- "t" is the sender's own clock, so only the difference between two events
+  from the same sender means anything. Clocks on different devices do not
+  agree.
+- 0.0.0.0 means "listen on every network", 127.0.0.1 means "this Mac only".
+- Clients can vanish without saying goodbye. A server must treat that as
+  normal, not as a crash.
+
+Next:
+- Run the relay and connect from the phone or a second computer on the
+  WiFi. macOS may ask whether Python may accept incoming connections. Say
+  Allow.
+- Then the browser client in web/, or the ESP32 sending key events.
