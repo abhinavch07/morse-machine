@@ -8,7 +8,7 @@ The phone and the ESP32 connect to the Mac over WiFi. If the macOS firewall
 blocks Python, they cannot reach the web page (port 8000) or the relay
 (port 8765), even though everything works from the Mac itself.
 
-Fix, tested 2026-10-08:
+Fix, tested 2026-10-07:
 1. System Settings, Network, Firewall, Options.
 2. Add this app and set it to "Allow incoming connections":
    `/Library/Frameworks/Python.framework/Versions/3.13/Resources/Python.app`

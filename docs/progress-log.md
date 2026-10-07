@@ -545,9 +545,20 @@ Next:
 - Build the DIY straight key, then later the touch paddle on GPIO 32 and 33.
 
 
-## 2026-10-07 Phase 3, session 1: WebSocket relay server
+## 2026-10-07 Phase 2 done, Phase 3 sessions 1 and 2: relay and browser page
 
-Built:
+Summary:
+- Parked the microswitch straight key and the hacksaw blade key for later,
+  to avoid soldering for now. COM and NO pins on the microswitch are already
+  found and checked with the multimeter.
+- Phase 2 counted as done. The push button and touch key meet its check.
+- Started Phase 3 (internet Morse) on home WiFi.
+- Built the relay server and the browser page. All tests pass.
+- Fixed a phone connection problem: the macOS firewall was blocking Python.
+- Laptop and phone exchanged Morse both ways with correct decoding. All
+  checks passed.
+
+Built, session 1, relay server:
 - Installed websockets 17.2 in the venv. New requirements.txt lists what the
   project needs to run (websockets). requirements-dev.txt now starts with
   "-r requirements.txt", so one install gives both.
@@ -564,7 +575,7 @@ Built:
 - tests/test_relay.py: 11 tests. A message from A reaches B and not A, a
   message reaches every other client, bad messages are dropped, a client
   that leaves is forgotten, a sudden disconnect is not an error, and checks
-  of the message filter. All 71 Python tests pass.
+  of the message filter.
 - Tried it on the Mac with the relay and two demo clients: each client
   received exactly the other's six events, and none of its own.
 - Fixed during that run: a client that left with Ctrl+C made the relay print
@@ -572,27 +583,7 @@ Built:
   relay now logs it as one "disconnect (suddenly)" line. A test cuts a
   connection with no goodbye to check this.
 
-Learned:
-- A WebSocket is a connection that stays open, so both sides can send at any
-  moment. Plain web requests only answer when asked.
-- A relay does not need to understand Morse. It only passes key events on.
-  Each receiver turns them back into tone and timing.
-- "t" is the sender's own clock, so only the difference between two events
-  from the same sender means anything. Clocks on different devices do not
-  agree.
-- 0.0.0.0 means "listen on every network", 127.0.0.1 means "this Mac only".
-- Clients can vanish without saying goodbye. A server must treat that as
-  normal, not as a crash.
-
-Next:
-- Run the relay and connect from the phone or a second computer on the
-  WiFi. macOS may ask whether Python may accept incoming connections. Say
-  Allow.
-- Then the browser client in web/, or the ESP32 sending key events.
-
-## 2026-10-07 Phase 3, session 2: browser page in web/
-
-Built:
+Built, session 2, browser page in web/:
 - web/morse.js: the Morse table (plain JSON between two marker lines, same
   order as morse_core), a KeyDecoder with the same rules and limits as the
   ESP32 (split 160 ms, letter gap 250 ms, word gap 2500 ms), and a Playout
@@ -621,31 +612,40 @@ Built:
 - To open it on the phone, serve the web folder from the project folder:
   python3.13 -m http.server 8000 --bind 0.0.0.0 --directory web
   Then open http://<Mac WiFi IP>:8000 on the phone, with the relay running.
-- Laptop and phone test passed on 2026-10-08: both connect, keying works in
-  both directions with correct decoding, the tones are clean, the phone key
-  works with no scrolling or long press menu, and both pages reconnect after
-  the relay restarts.
-- The phone could only reach the Mac after allowing Python.app in the macOS
-  firewall. The fix is in the new docs/setup-notes.md, with a note that the
-  Mac's IP can change, so it is read from the relay at start up.
+- Laptop and phone test passed: both connect, keying works in both
+  directions with correct decoding, the tones are clean, the phone key works
+  with no scrolling or long press menu, and both pages reconnect after the
+  relay restarts.
+- The phone could only reach the Mac after allowing Python.app from the
+  python.org 3.13 framework in the macOS Firewall Options. The fix is in the
+  new docs/setup-notes.md, with a note that the Mac's IP can change, so it
+  is read from the relay at start up.
 - CLAUDE.md now lists Node.js 22, used only for the JavaScript tests.
 
 Learned:
-- Phones only allow sound after a tap, which is why there is a Start button.
+- Send key events, not sound, over the network. A relay does not need to
+  understand Morse. It only passes key events on, and each receiver turns
+  them back into tone and timing.
+- A WebSocket is a connection that stays open, so both sides can send at any
+  moment. Plain web requests only answer when asked.
+- 0.0.0.0 means "listen on every network", 127.0.0.1 means "this Mac only".
+- Clients can vanish without saying goodbye. A server must treat that as
+  normal, not as a crash.
 - Each device has its own clock, so a received t means nothing alone. The
   gap between two t values from the same sender is true. Remembering one
   offset per sender turns their times into ours.
-- A playout delay (a small buffer, like a video stream uses) trades 200 ms
-  of lag for an even rhythm when the network is uneven.
+- A playout delay keeps timing even on WiFi. Like a video stream's buffer,
+  it trades 200 ms of lag for an even rhythm.
 - The audio clock is separate from performance.now(). Planning a tone on the
   audio clock makes it start exactly on time, even if the page is busy.
 - Decoding received keying from the sender's t values means network delays
   cannot change the decoded text at all.
-
-- A firewall can block a program even when the network is fine. Testing
-  from the Mac itself passed, because the firewall only checks connections
-  coming from other devices.
+- Phones only allow sound after a tap, which is why there is a Start button.
+- The Mac's IP can change. Read it from the relay at start up.
+- localhost working but the IP failing points to the firewall. The firewall
+  only checks connections coming from other devices.
 
 Next:
-- The ESP32 sending key events to the relay and playing received events
-  as sidetone.
+- ESP32 joins the relay over WiFi. Keep the WiFi password out of the public
+  repo.
+- Morse practice: LCWO Lesson 3 (adds R).
