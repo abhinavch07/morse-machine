@@ -791,3 +791,87 @@ Next:
 - The DIY dual lever paddle is parked for later, with the other soldering
   work (the microswitch straight key and the hacksaw blade key).
 - Phase 5 next: the receive side and the tone decoder.
+
+## 2026-10-11 Phase 5, session 1: microphone tone decoder
+
+Built:
+- lib/goertzel: one Goertzel filter, strength of one frequency in a 10 ms
+  block of 80 samples at 8 kHz, scaled to the tone's amplitude in ADC
+  counts. 9 native tests: clean tone, tone with noise as loud as itself,
+  noise alone, wrong frequencies (1000, 850 and 700 Hz) and silence.
+- lib/tone_detector: removes the 1.25 V DC level, runs 11 filters from 400
+  to 900 Hz in 50 Hz steps, and decides tone on or off for each block.
+  Fixed mode listens to 600 Hz. Auto mode moves to a filter only when it is
+  1.5 x stronger than the current one and well above the noise. The noise
+  level comes from the 3rd weakest filter (x 1.64, measured), because noise
+  is in every filter but a tone only in a few. It falls fast and rises
+  slowly. On above max(4 x noise, halfway to the peak), off below
+  max(2 x noise, a quarter of the way), and 2 blocks must agree. 13 native
+  tests, and the noise cases also pass with 50 different random seeds.
+- lib/mic_decoder: SpeedTracker works out the dit length from the last 8
+  tones, splitting dits from dahs at the biggest jump in the sorted lengths.
+  MicDecoder joins it with the KeyDecoder: split 2 dits, letter gap 2 dits,
+  word gap 5 dits. 10 native tests, including 10, 15 and 20 WPM and speed
+  jumps from 10 to 25 WPM and back.
+- src/mic.cpp: timer 1 at 8 kHz wakes a task on core 1 (priority 5) that
+  reads GPIO 35 with adc1_get_raw() and runs the detector. 10 ms blocks go
+  to loop() through a queue. Not I2S with DMA, because that takes over all
+  of ADC1 and the speed knob on GPIO 34 would stop working. Not core 0,
+  because WiFi there could hold samples back.
+- main.cpp: commands m, auto and l. Mic text replaces the relay text on the
+  OLED, and the bottom line shows "mic 600Hz 15wpm", with " *" while a tone
+  is heard. Mic letters print on their own serial lines starting "mic: ".
+  The mic is ignored while either sidetone plays and 50 ms after.
+- Help: start up and the ? command now print the settings (keyer and mic)
+  and the full command list, one command per line with what it does. Before,
+  ? showed only the keyer settings, and the full list only came up after an
+  unknown command.
+- decoder/make_test_wavs.py: 6 test WAV files from morse_core, with 2 s of
+  silence first. 4 pytest tests.
+- Checked on the Mac: all 6 WAV files, run through the C++ detector and
+  decoder with DC and noise added, decode to the exact text in auto mode,
+  and the 600 Hz ones in fixed mode. The 15 WPM file still decodes with
+  noise as loud as the tone.
+- All 136 native tests and 78 Python tests pass. The ESP32 build passes
+  (flash 76.6%, RAM 16.5%).
+
+Board test passed:
+- 8000 samples a second with 0 missed.
+- A quiet room stays off.
+- The speed knob still works with the mic on.
+- The 15 WPM 600 Hz file decoded exactly. This is the Phase 5 done check.
+- 10 and 20 WPM decode mostly right, with an occasional *.
+- Fixed mode ignores 700 Hz, and auto mode locks on to 700 Hz.
+- My own keying is not decoded as mic text.
+- The help change came after the board test. It only changes serial text,
+  and the ESP32 build passes.
+
+To watch later:
+- The occasional * at 10 and 20 WPM from the speaker. The same files with
+  added noise decode perfectly on the Mac, so it is probably the sound path
+  (Mac speaker, room echo, the MAX9814 automatic gain), not the decoder.
+  Next step when it matters: log the tone on and off times from the board
+  and compare them with the file.
+- The longest time per sample is about 200 us, against a 125 us slot. Still
+  0 missed, because one slow sample only makes the next one a little late,
+  not lost. A tick only counts as missed when a whole slot is skipped. But
+  there is no spare time when it happens. Check what makes the slow
+  ones (most likely the end of a block, or the ADC lock shared with the
+  knob) before adding more work to the mic task.
+
+Learned:
+- Goertzel is one bar of a spectrum display, cheap enough to run 11 at once.
+- With 80 samples at 8 kHz, tones that are whole multiples of 100 Hz do not
+  leak into each other, so 700 Hz hardly shows in the 600 Hz filter.
+- A filter alone cannot tell loud noise from a tone. Comparing with the
+  other filters can.
+- Tests with random noise can pass by luck. Running them with many seeds
+  shows if they really work.
+- The ADC is too slow to read inside an interrupt, so the interrupt only
+  wakes a task.
+
+Next:
+- Phase 5 is done: the decoder reads clean audio at 15 WPM and adapts to
+  the speed.
+- Practise copying real HF CW on a WebSDR or KiwiSDR (part of Phase 5).
+- Phase 6 when asked: the ML decoder, adaptive trainer and fist analyser.

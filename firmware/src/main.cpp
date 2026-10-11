@@ -1,4 +1,5 @@
-// Phase 4: iambic keyer with a touch paddle and a speed knob.
+// Phase 5: receive side, a microphone tone decoder.
+// Phase 4 and before: iambic keyer with a touch paddle and a speed knob.
 // Two ways to key, both feeding one key line:
 //   the button on GPIO 27, a straight key, down while it is held, and
 //   the touch paddle, pads on GPIO 32 (dit) and GPIO 33 (dah), through the
@@ -10,6 +11,9 @@
 // plays on GPIO 25 (DAC1), and both LEDs are on. The press and gap times go
 // to the decoder. Letters print on one line as they are decoded, a word gap
 // prints a space, and 5 seconds with no presses ends the line.
+// Type m to decode Morse heard by the microphone on GPIO 35 (see mic.cpp).
+// The mic's text and the tone it locked on to replace the relay text on the
+// OLED. auto finds the sender's tone, l prints live levels for tuning.
 // Each press and release is also sent to the relay. Key events from other
 // devices play at 700 Hz, 200 ms after they were sent, and are decoded too.
 // The SH1106 OLED shows my text, the received text, the network status and
@@ -30,6 +34,9 @@
 #include <touch_key.h>
 #include <string.h>
 
+#include <mic_decoder.h>
+
+#include "mic.h"
 #include "network.h"
 
 // Pins, from the pin map in CLAUDE.md and docs/hardware-notes.md
@@ -114,6 +121,12 @@ const unsigned long KNOB_READ_MS = 10;   // 16 readings fill the average in 160 
 // After this long with the key up, start a new line on serial.
 const unsigned long NEW_LINE_MS = 5000;
 
+// Microphone decoding. The mic is ignored while either sidetone plays, and
+// this long after, so the room echo of my own tone dies away first.
+const unsigned long MIC_HANGOVER_MS = 50;
+const float MIC_START_WPM = 15;          // a first guess, it adapts from the first tones
+const unsigned long MIC_LEVELS_MS = 1000;
+
 // Temporary: print "down 85" and "up 120" for every press and gap, in ms, so
 // we can see how long they really are. Set to false to hide them.
 const bool DEBUG_TIMING = false;
@@ -146,6 +159,7 @@ unsigned long keyUpStartMs = 0;          // when the current gap began
 
 KeyDecoder decoder(DIT_DAH_SPLIT_MS, LETTER_GAP_MS, WORD_GAP_MS);
 bool lineHasText = false;                // printed something since the last new line
+bool lineIsMic = false;                  // the text on that line came from the mic
 
 // Set by the key pin interrupt at every raw change, bounces included. loop()
 // uses this time, not the time it happens to notice the change, so a slow
@@ -164,6 +178,18 @@ IambicKeyer keyer(KNOB_MIN_WPM);
 SpeedKnob knob(KNOB_MIN_WPM, KNOB_MAX_WPM, KNOB_JITTER);
 unsigned long lastKnobReadMs = 0;
 bool paddlesSwapped = PADDLES_SWAPPED_AT_START;
+
+// Microphone decoding, all in loop(). The sampling is in mic.cpp.
+bool micOn = false;
+bool micLevels = false;                  // printing levels once a second
+MicDecoder micDecoder(MIC_START_WPM);
+ScreenText micText(2);                   // replaces receivedText on screen while micOn
+MicBlock lastMicBlock = {};
+float shownMicHz = 0;
+bool shownMicTone = false;
+int shownMicWpm = 0;
+unsigned long lastSoundMs = 0;           // when either sidetone was last on
+unsigned long lastLevelsMs = 0;
 
 // A serial command being typed, like "swap".
 char command[16];
@@ -253,10 +279,35 @@ void sendCode(const char* code, const MorseTiming& t) {
 // ("K", "<AR>" or "*") for a letter, and one space for a word gap.
 void printDecoded(const DecodeResult& r) {
   if (r.letterDone) {
+    // My letters never join a line of mic text.
+    if (lineHasText && lineIsMic) Serial.println();
+    lineIsMic = false;
     Serial.print(r.letter);
     lineHasText = true;
   }
-  if (r.wordDone) Serial.print(' ');
+  if (r.wordDone && lineHasText && !lineIsMic) Serial.print(' ');
+}
+
+// Mic letters go on their own lines, starting with "mic: ".
+void printMicDecoded(const DecodeResult& r) {
+  if (r.letterDone) {
+    if (lineHasText && !lineIsMic) {
+      Serial.println();
+      lineHasText = false;
+    }
+    if (!lineHasText) Serial.print("mic: ");
+    lineIsMic = true;
+    Serial.print(r.letter);
+    lineHasText = true;
+  }
+  if (r.wordDone && lineHasText && lineIsMic) Serial.print(' ');
+}
+
+void reportMicDecoded(const DecodeResult& r) {
+  printMicDecoded(r);
+  if (r.letterDone) micText.addLetter(r.letter);
+  if (r.wordDone) micText.addSpace();
+  if (r.letterDone || r.wordDone) screenChanged = true;
 }
 
 // Same as printDecoded(), but for the screen.
@@ -312,14 +363,23 @@ void drawScreen() {
     oled.drawStr(0, 19 + row * 10, myText.line(row));
   }
   oled.drawHLine(0, 31, 128);
-  for (int row = 0; row < receivedText.rows(); row++) {
-    oled.drawStr(0, 41 + row * 10, receivedText.line(row));
+  ScreenText& lower = micOn ? micText : receivedText;
+  for (int row = 0; row < lower.rows(); row++) {
+    oled.drawStr(0, 41 + row * 10, lower.line(row));
   }
 
   // Bottom: a line, then the dits and dahs of the letter being keyed now.
+  // With the mic on, the mic's tone and speed instead, with * while it hears
+  // a tone.
   oled.drawHLine(0, 53, 128);
-  char code[20];
-  oled.drawStr(0, 63, spacedCode(decoder.currentCode(), code));
+  char bottom[24];
+  if (micOn) {
+    snprintf(bottom, sizeof(bottom), "mic %dHz%s %dwpm%s", (int)shownMicHz,
+             micAutoMode() ? " auto" : "", shownMicWpm, shownMicTone ? " *" : "");
+  } else {
+    spacedCode(decoder.currentCode(), bottom);
+  }
+  oled.drawStr(0, 63, bottom);
 }
 
 // Sending the whole buffer over I2C takes about 25 ms, and loop() would stop
@@ -518,10 +578,69 @@ void printSettings() {
            knob.wpm(), keyer.mode() == KEYER_MODE_A ? 'A' : 'B',
            paddlesSwapped ? DAH_PAD_PIN : DIT_PAD_PIN, paddlesSwapped ? DIT_PAD_PIN : DAH_PAD_PIN);
   printLine(line);
+  snprintf(line, sizeof(line), "Mic decoding %s, tone %s", micOn ? "on" : "off",
+           micAutoMode() ? "auto (400 to 900 Hz)" : "fixed 600 Hz");
+  printLine(line);
+}
+
+// The full list, at start up and for ?, so every command is always shown.
+void printHelp() {
+  printLine("Commands (type one, then Enter):");
+  printLine("  a     keyer mode A");
+  printLine("  b     keyer mode B");
+  printLine("  swap  swap the dit and dah pads");
+  printLine("  t     touch monitor on or off");
+  printLine("  m     mic decoding on or off");
+  printLine("  auto  mic tone auto (400 to 900 Hz) or fixed 600 Hz");
+  printLine("  l     mic levels on or off (mic must be on)");
+  printLine("  ?     settings and this list");
+}
+
+void printMicTone() {
+  if (micAutoMode()) {
+    printLine("Mic tone: auto, the strongest from 400 to 900 Hz");
+  } else {
+    printLine("Mic tone: fixed 600 Hz");
+  }
+}
+
+void setMicOn(bool on) {
+  micOn = on;
+  if (on) {
+    micDecoder.reset();
+    micText.newLine();
+    lastMicBlock = {};
+    lastMicBlock.hz = 600;  // the detector always starts on 600 Hz
+    micStart();
+    printLine("Mic decoding on. Type l for levels, auto for auto tone, m to stop.");
+    printMicTone();
+  } else {
+    micStop();
+    micLevels = false;
+    printLine("Mic decoding off");
+  }
+  screenChanged = true;
 }
 
 void runCommand(const char* text) {
-  if (strcmp(text, "a") == 0) {
+  if (strcmp(text, "m") == 0) {
+    setMicOn(!micOn);
+    return;
+  } else if (strcmp(text, "auto") == 0) {
+    micSetAutoMode(!micAutoMode());
+    printMicTone();
+    screenChanged = true;
+    return;
+  } else if (strcmp(text, "l") == 0) {
+    if (!micOn) {
+      printLine("The mic is off. Type m first.");
+      return;
+    }
+    micLevels = !micLevels;
+    if (!micLevels) printLine("Mic levels off");
+    lastLevelsMs = millis() - MIC_LEVELS_MS;  // first line straight away
+    return;
+  } else if (strcmp(text, "a") == 0) {
     keyer.setMode(KEYER_MODE_A);
   } else if (strcmp(text, "b") == 0) {
     keyer.setMode(KEYER_MODE_B);
@@ -542,8 +661,12 @@ void runCommand(const char* text) {
       printLine("Touch monitor off");
     }
     return;
-  } else if (strcmp(text, "?") != 0) {
-    printLine("Commands: a (mode A), b (mode B), swap (swap the pads), t (touch monitor on or off), ? (settings)");
+  } else if (strcmp(text, "?") == 0) {
+    printSettings();
+    printHelp();
+    return;
+  } else {
+    printLine("Unknown command. Type ? for the list.");
     return;
   }
   printSettings();
@@ -592,6 +715,59 @@ void handleNetwork(unsigned long now) {
   if (status != shownStatus) {
     shownStatus = status;
     screenChanged = true;
+  }
+}
+
+// One line of mic tuning numbers, like
+// "mic 600Hz fixed: tone 85.2 noise 3.1 on>40.1 off<20.0 ON 15wpm | 8000/s, 38us, missed 0"
+void printMicLevels() {
+  const MicBlock& b = lastMicBlock;
+  MicStats stats = micStats();
+  char line[160];
+  snprintf(line, sizeof(line),
+           "mic %dHz %s: tone %.1f noise %.1f on>%.1f off<%.1f %s %dwpm | %lu/s, %luus, missed %lu",
+           (int)b.hz, micAutoMode() ? "auto" : "fixed", b.strength, b.noise, b.onLevel,
+           b.offLevel, b.toneOn ? "ON" : "off", (int)(micDecoder.wpm() + 0.5f),
+           (unsigned long)stats.samples, (unsigned long)stats.longestUs,
+           (unsigned long)stats.missed);
+  printLine(line);
+}
+
+// Everything from the mic task, one 10 ms block at a time. The mic decoder
+// works in the sample clock's ms, from the blocks, not millis().
+void handleMic(unsigned long now) {
+  // Never decode my own sidetone or the relay tone from the speaker.
+  bool sound = toneOn || remoteToneOn;
+  if (sound) lastSoundMs = now;
+  micSetIgnored(sound || now - lastSoundMs < MIC_HANGOVER_MS);
+  if (!micOn) return;
+
+  MicBlock block;
+  while (micReceive(&block)) {
+    lastMicBlock = block;
+    if (block.changed) reportMicDecoded(micDecoder.toneChanged(block.toneOn, block.changeMs));
+    reportMicDecoded(micDecoder.update(block.ms));
+
+    // A long pause ends the mic's line, like it does for the key.
+    if (lineHasText && lineIsMic && micDecoder.quietMs(block.ms) >= NEW_LINE_MS) {
+      Serial.println();
+      lineHasText = false;
+      micText.newLine();
+      screenChanged = true;
+    }
+  }
+
+  int wpm = (int)(micDecoder.wpm() + 0.5f);
+  if (lastMicBlock.hz != shownMicHz || lastMicBlock.toneOn != shownMicTone || wpm != shownMicWpm) {
+    shownMicHz = lastMicBlock.hz;
+    shownMicTone = lastMicBlock.toneOn;
+    shownMicWpm = wpm;
+    screenChanged = true;
+  }
+
+  if (micLevels && now - lastLevelsMs >= MIC_LEVELS_MS) {
+    lastLevelsMs = now;
+    printMicLevels();
   }
 }
 
@@ -649,7 +825,7 @@ void setup() {
   keyer.setMode(KEYER_MODE_AT_START);
   readKnob(millis());  // prints the first knob reading and sets the speed
   printSettings();
-  printLine("Type a, b, swap, t or ? and press Enter");
+  printHelp();
 
   // The DAC starts at 0 V, but silence is the middle level, 128. Jumping
   // straight there would thump the speaker once, so slide up over 0.5 s.
@@ -665,6 +841,9 @@ void setup() {
   timerAttachInterrupt(sampleTimer, &onSampleTimer, false);  // false: level, the only kind this core supports
   timerAlarmWrite(sampleTimer, TIMER_TICKS, true);  // true: repeat forever
   timerAlarmEnable(sampleTimer);
+
+  // Sets up the mic sampling on timer 1, stopped until the m command.
+  micBegin();
 }
 
 // No delay() here, so loop() runs thousands of times a second and never
@@ -701,7 +880,7 @@ void loop() {
     reportDecoded(decoder.keyUp(now - keyUpStartMs));
 
     // A long pause ends the line, but never prints empty lines.
-    if (lineHasText && now - keyUpStartMs >= NEW_LINE_MS) {
+    if (lineHasText && !lineIsMic && now - keyUpStartMs >= NEW_LINE_MS) {
       Serial.println();
       lineHasText = false;
       myText.newLine();
@@ -710,5 +889,6 @@ void loop() {
   }
 
   handleNetwork(now);
+  handleMic(now);
   updateScreen();
 }

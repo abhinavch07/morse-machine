@@ -239,3 +239,28 @@ Right board, left half (columns a to e):
   calibration level: GPIO 32 and GPIO 33 were joined on the board. Fixed by
   separating them. The t touch monitor and the start up warning now catch
   this.
+
+### Microphone, MAX9814 (Phase 5, from 2026-10-11)
+- Wiring: VDD on 3.3 V, GND on GND, OUT on GPIO 35 (ADC1 channel 7, input
+  only, works with WiFi). Gain pin on GND for 50 dB. AR not connected.
+- The output sits at about 1.25 V with no sound, about 1550 ADC counts,
+  and swings up to 2 V peak to peak. The ADC is set to its 0 to 3.1 V range,
+  so the swing fits. The firmware takes away the 1.25 V level itself.
+- Sampled 8000 times a second: timer 1 wakes a task on core 1, which reads
+  the ADC with adc1_get_raw(). Timer 0 and the DAC are the sidetone, so the
+  two do not share any hardware. The ADC is kept powered on (one call to
+  adc_power_acquire()) instead of switching on and off for every reading.
+- The mic is ignored while my sidetone or the relay tone plays, and 50 ms
+  after, so the speaker is never decoded. Keep the speaker volume moderate
+  anyway.
+- Serial commands: m = mic decoding on or off (off at start), auto = auto
+  tone (400 to 900 Hz) or fixed 600 Hz, l = live levels once a second.
+- ? prints the settings and the full command list. Start up prints the
+  same.
+- Levels line: tone strength, noise level, the on and off levels, ON or off,
+  the speed it worked out, then samples per second (should be about 8000),
+  the longest time for one sample in microseconds, and missed timer ticks
+  (should be 0).
+- Test audio: python -m decoder.make_test_wavs writes decoder/test_wavs/,
+  10, 15 and 20 WPM at 600 and 700 Hz, all sending
+  "VVV PARIS PARIS THE QUICK BROWN FOX 73" after 2 seconds of silence.
