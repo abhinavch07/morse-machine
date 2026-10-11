@@ -1,9 +1,15 @@
-// Phase 3, Session 3: the ESP32 joins the relay over WiFi.
-// While the button on GPIO 27 is held or the foil pad on GPIO 32 is touched,
-// a 600 Hz tone with a 5 ms fade in and fade out plays on GPIO 25 (DAC1), and
-// both LEDs are on. The press and gap times go to the decoder. Letters print
-// on one line as they are decoded, a word gap prints a space, and 5 seconds
-// with no presses ends the line.
+// Phase 4: iambic keyer with a touch paddle and a speed knob.
+// Two ways to key, both feeding one key line:
+//   the button on GPIO 27, a straight key, down while it is held, and
+//   the touch paddle, pads on GPIO 32 (dit) and GPIO 33 (dah), through the
+//   iambic keyer, which sends perfectly timed dits and dahs.
+// The knob on GPIO 34 sets the keyer speed, 8 to 25 WPM. Type a, b, swap, t
+// or ? and Enter in the serial monitor to change the keyer mode, swap the
+// pads or watch the raw touch readings.
+// While the key line is down, a 600 Hz tone with a 5 ms fade in and fade out
+// plays on GPIO 25 (DAC1), and both LEDs are on. The press and gap times go
+// to the decoder. Letters print on one line as they are decoded, a word gap
+// prints a space, and 5 seconds with no presses ends the line.
 // Each press and release is also sent to the relay. Key events from other
 // devices play at 700 Hz, 200 ms after they were sent, and are decoded too.
 // The SH1106 OLED shows my text, the received text, the network status and
@@ -13,11 +19,14 @@
 #include <Arduino.h>
 #include <soc/rtc_io_reg.h>
 #include <U8g2lib.h>
+#include <ctype.h>
+#include <iambic_keyer.h>
 #include <key_decoder.h>
 #include <morse.h>
 #include <playout.h>
 #include <screen_text.h>
 #include <sidetone.h>
+#include <speed_knob.h>
 #include <touch_key.h>
 #include <string.h>
 
@@ -28,7 +37,9 @@ const int ONBOARD_LED_PIN = 2;           // the blue LED built into the DevKit V
 const int LED_PIN = 26;                  // external LED on the breadboard
 const int KEY_PIN = 27;                  // button to GND, INPUT_PULLUP
 const int SIDETONE_PIN = 25;             // DAC1, to PAM8403 input L
-const int TOUCH_PIN = 32;                // touch channel T9, foil pad
+const int DIT_PAD_PIN = 32;              // touch channel T9, left pad, thumb
+const int DAH_PAD_PIN = 33;              // touch channel T8, right pad, index finger
+const int SPEED_KNOB_PIN = 34;           // pot middle leg, ADC1 so it works with WiFi
 const int OLED_SDA_PIN = 21;             // I2C data
 const int OLED_SCL_PIN = 22;             // I2C clock
 
@@ -54,7 +65,7 @@ const int TIMER_TICKS = 1000000 / SAMPLE_RATE_HZ;  // 25 microseconds per sample
 // A reading must stay the same this long before we believe it.
 const unsigned long DEBOUNCE_MS = 10;
 
-// Touch key. The reading drops when the pad is touched. Two limits, so a
+// Touch paddle, both pads. The reading drops when the pad is touched. Two limits, so a
 // reading that wobbles around one of them cannot flicker the key.
 const float TOUCH_PRESS_RATIO = 0.65;    // touched below 65% of the no touch level
 const float TOUCH_RELEASE_RATIO = 0.80;  // released above 80%
@@ -67,7 +78,8 @@ const unsigned long TOUCH_CALIBRATE_MS = 2000;
 // 256 cycles is about 1.7 ms, plus 0.5 ms to measure (4096 cycles at 8 MHz),
 // so a fresh result about every 2.2 ms. We read every 3 ms, so each reading
 // is a new one, and 3 agreeing readings take about 6 to 9 ms, close to the
-// button's 10 ms debounce.
+// button's 10 ms debounce. With two pads, if the hardware measures them one
+// after the other, it is about 1.7 + 2 x 0.5 = 2.7 ms, still under 3 ms.
 const uint16_t TOUCH_MEASURE_CYCLES = 0x1000;
 const uint16_t TOUCH_SLEEP_CYCLES = 0x100;
 const unsigned long TOUCH_READ_MS = 3;
@@ -78,6 +90,27 @@ const float DIT_DAH_SPLIT_MS = 160;      // 2 units at 15 WPM. Dits up to 139, d
 const float LETTER_GAP_MS = 250;         // gaps inside a letter up to 136, between letters from 427
 const float WORD_GAP_MS = 2500;          // gaps between letters up to 1458, pause between groups 3822
 
+// Decoder limits for the paddle, in units of the keyer speed. The keyer's
+// presses and gaps inside a letter are exact, so the split can sit right
+// between them. The word gap is 7 units, not the textbook 5, to forgive slow
+// spacing between letters while learning the paddle.
+const float KEYER_SPLIT_UNITS = 2;       // dit 1 unit, dah 3 units
+const float KEYER_LETTER_GAP_UNITS = 2;  // gap inside a letter is always 1 unit
+const float KEYER_WORD_GAP_UNITS = 7;
+
+// Keyer settings at start up. Serial commands change them until the next
+// restart.
+const KeyerMode KEYER_MODE_AT_START = KEYER_MODE_A;
+const bool PADDLES_SWAPPED_AT_START = false;  // true: GPIO 33 is dit, GPIO 32 is dah
+
+// Speed knob. The ADC gives 0 to 4095 for 0 to 3.3 V. If turning the knob up
+// makes it slower, the outer legs are the other way round: set this to true.
+const bool KNOB_REVERSED = false;
+const int KNOB_MIN_WPM = 8;
+const int KNOB_MAX_WPM = 25;
+const int KNOB_JITTER = 40;              // ADC counts, about 1/6 of one WPM step
+const unsigned long KNOB_READ_MS = 10;   // 16 readings fill the average in 160 ms
+
 // After this long with the key up, start a new line on serial.
 const unsigned long NEW_LINE_MS = 5000;
 
@@ -85,9 +118,15 @@ const unsigned long NEW_LINE_MS = 5000;
 // we can see how long they really are. Set to false to hide them.
 const bool DEBUG_TIMING = false;
 
-// Print the raw touch reading about 10 times a second, to check the levels.
-const bool DEBUG_TOUCH = false;
-const unsigned long DEBUG_TOUCH_MS = 100;
+// Touch monitor: print the raw reading of both pads once a second, to check
+// what each pad reads. The serial command t turns it on and off.
+const bool TOUCH_MONITOR_AT_START = false;
+const unsigned long TOUCH_MONITOR_MS = 1000;
+
+// Two separate pads never calibrate to almost the same level. If they do,
+// they are probably connected to each other, for example two jumpers in the
+// same breadboard row, or foil pads touching.
+const float SAME_LEVEL_WARNING = 1.0;
 
 // Print one line for every key event sent to or received from the relay.
 // Each line ends the current line of decoded letters, so set this to false
@@ -100,7 +139,7 @@ const char* MESSAGE = "VU";
 
 // Key state, kept between passes of loop().
 bool buttonDown = false;                 // the button, after debounce
-bool keyDown = false;                    // button OR touch pad, what we send
+bool keyDown = false;                    // button OR keyer, what we send
 unsigned long lastKeyChangeMs = 0;       // time of the last keyDown change
 unsigned long keyDownStartMs = 0;        // when the current press began
 unsigned long keyUpStartMs = 0;          // when the current gap began
@@ -113,9 +152,22 @@ bool lineHasText = false;                // printed something since the last new
 // screen update cannot make a press or gap look longer or shorter.
 volatile unsigned long lastEdgeMs = 0;
 
-TouchKey touchKey(TOUCH_PRESS_RATIO, TOUCH_RELEASE_RATIO, TOUCH_READINGS_TO_AGREE);
+TouchKey ditPad(TOUCH_PRESS_RATIO, TOUCH_RELEASE_RATIO, TOUCH_READINGS_TO_AGREE);
+TouchKey dahPad(TOUCH_PRESS_RATIO, TOUCH_RELEASE_RATIO, TOUCH_READINGS_TO_AGREE);
 unsigned long lastTouchReadMs = 0;
 unsigned long lastTouchPrintMs = 0;
+bool touchMonitor = TOUCH_MONITOR_AT_START;
+
+// The keyer starts at the slowest speed. setup() reads the knob straight
+// away and sets the real speed.
+IambicKeyer keyer(KNOB_MIN_WPM);
+SpeedKnob knob(KNOB_MIN_WPM, KNOB_MAX_WPM, KNOB_JITTER);
+unsigned long lastKnobReadMs = 0;
+bool paddlesSwapped = PADDLES_SWAPPED_AT_START;
+
+// A serial command being typed, like "swap".
+char command[16];
+int commandLength = 0;
 
 // The screen. F means the whole picture is kept in a 1 KB buffer in RAM, so
 // we can draw it all at once and then send it to the screen in pieces.
@@ -244,7 +296,10 @@ void drawScreen() {
 
   // Top: a small title, the network status on the right, and a line under.
   oled.setFont(u8g2_font_5x7_tr);
-  oled.drawStr(0, 7, "MORSE");
+  char title[16];
+  snprintf(title, sizeof(title), "%dwpm %c%s", knob.wpm(),
+           keyer.mode() == KEYER_MODE_A ? 'A' : 'B', paddlesSwapped ? " sw" : "");
+  oled.drawStr(0, 7, title);
   const char* status = shownStatus == NET_RELAY ? "RELAY ok"
                        : shownStatus == NET_WIFI ? "WiFi only"
                                                  : "no WiFi";
@@ -319,35 +374,62 @@ void printTiming(const char* label, unsigned long ms) {
   if (DEBUG_TIMING) printDebug(label, ms);
 }
 
-// Learn the pad's "no touch" level. It changes with humidity, the length of
+void printPadLevels(const char* name, int pin, const TouchKey& pad) {
+  Serial.printf("Touch %s pad GPIO %d: no touch level %.1f, touched below %.1f, released above %.1f\n",
+                name, pin, pad.noTouchLevel(), pad.pressLevel(), pad.releaseLevel());
+}
+
+// Learn each pad's "no touch" level. It changes with humidity, the length of
 // the wire and the size of the pad, so it is measured fresh at every start.
+// Both pads are measured in the same 2 seconds, each on its own.
 void calibrateTouch() {
-  touchRead(TOUCH_PIN);  // the first call switches the touch hardware on
-  // Must come after that first call. Setting the cycles before it would be
-  // undone, with the two numbers swapped, when the hardware is switched on.
+  // The first call for each pin switches it on. The touch hardware as a
+  // whole is only switched on once, by the very first call.
+  touchRead(DIT_PAD_PIN);
+  touchRead(DAH_PAD_PIN);
+  // Must come after those first calls. Setting the cycles before them would
+  // be undone, with the two numbers swapped, when the hardware is switched on.
   touchSetCycles(TOUCH_MEASURE_CYCLES, TOUCH_SLEEP_CYCLES);
   delay(50);  // let a few measurements finish at the new speed
 
-  Serial.println("Touch calibrating, do not touch the pad");
+  Serial.println("Touch calibrating, do not touch the pads");
   unsigned long start = millis();
   while (millis() - start < TOUCH_CALIBRATE_MS) {
-    touchKey.addCalibrationReading(touchRead(TOUCH_PIN));
+    ditPad.addCalibrationReading(touchRead(DIT_PAD_PIN));
+    dahPad.addCalibrationReading(touchRead(DAH_PAD_PIN));
     delay(TOUCH_READ_MS);
   }
-  touchKey.finishCalibration();
+  ditPad.finishCalibration();
+  dahPad.finishCalibration();
 
-  Serial.printf("Touch no touch level %.1f, touched below %.1f, released above %.1f\n",
-                touchKey.noTouchLevel(), touchKey.pressLevel(), touchKey.releaseLevel());
+  printPadLevels("left", DIT_PAD_PIN, ditPad);
+  printPadLevels("right", DAH_PAD_PIN, dahPad);
+  if (fabsf(ditPad.noTouchLevel() - dahPad.noTouchLevel()) < SAME_LEVEL_WARNING) {
+    Serial.println("Warning: both pads read almost the same. Check that GPIO 32 and GPIO 33");
+    Serial.println("are not connected together (same breadboard row, or pads touching).");
+  }
 }
 
-// Called when the button or the pad changes. keyDown is "button OR pad", so
-// it only changes when the first one goes down or the last one comes up.
+// The straight key keeps the limits fitted to my hand. The paddle uses
+// limits that follow the keyer speed.
+void useDecoderLimits(bool forKeyer) {
+  if (forKeyer) {
+    float unit = keyer.unitMs();
+    decoder.setLimits(KEYER_SPLIT_UNITS * unit, KEYER_LETTER_GAP_UNITS * unit,
+                      KEYER_WORD_GAP_UNITS * unit);
+  } else {
+    decoder.setLimits(DIT_DAH_SPLIT_MS, LETTER_GAP_MS, WORD_GAP_MS);
+  }
+}
+
+// Called when the button or the keyer changes. keyDown is "button OR keyer",
+// so it only changes when the first one goes down or the last one comes up.
 // atMs is when that input really changed, not when loop() noticed.
 void updateKey(unsigned long atMs) {
-  bool down = buttonDown || touchKey.touched();
+  bool down = buttonDown || keyer.keyDown();
   if (down == keyDown) return;
 
-  // The button and the pad are noticed with different delays, so in a rare
+  // The button and the keyer are noticed with different delays, so in a rare
   // overlap atMs could be a little before the last change. Never go back in
   // time, or a press or gap would come out negative.
   if ((long)(atMs - lastKeyChangeMs) < 0) atMs = lastKeyChangeMs;
@@ -366,6 +448,9 @@ void updateKey(unsigned long atMs) {
   if (keyDown) {
     reportDecoded(decoder.keyUp(atMs - keyUpStartMs));  // the gap just ended
     printTiming("up", atMs - keyUpStartMs);
+    // Only now switch limits for this press. The gap above belonged to the
+    // letter before, so it was judged by that letter's limits.
+    useDecoderLimits(keyer.keyDown());
     keyDownStartMs = atMs;
   } else {
     decoder.keyDown(atMs - keyDownStartMs);
@@ -375,17 +460,110 @@ void updateKey(unsigned long atMs) {
   }
 }
 
-// Read the pad every TOUCH_READ_MS, in loop(), never in an interrupt.
+// Read both pads every TOUCH_READ_MS, in loop(), never in an interrupt.
 void readTouch(unsigned long now) {
   if (now - lastTouchReadMs < TOUCH_READ_MS) return;
   lastTouchReadMs = now;
 
-  uint16_t raw = touchRead(TOUCH_PIN);
-  if (touchKey.update(raw, now)) updateKey(touchKey.changeMs());
+  uint16_t ditRaw = touchRead(DIT_PAD_PIN);
+  uint16_t dahRaw = touchRead(DAH_PAD_PIN);
+  ditPad.update(ditRaw, now);
+  dahPad.update(dahRaw, now);
 
-  if (DEBUG_TOUCH && now - lastTouchPrintMs >= DEBUG_TOUCH_MS) {
+  if (touchMonitor && now - lastTouchPrintMs >= TOUCH_MONITOR_MS) {
     lastTouchPrintMs = now;
-    printDebug("touch", raw);
+    char line[96];
+    snprintf(line, sizeof(line), "touch GPIO %d left %u %s, GPIO %d right %u %s", DIT_PAD_PIN,
+             ditRaw, ditPad.touched() ? "TOUCHED" : "free", DAH_PAD_PIN, dahRaw,
+             dahPad.touched() ? "TOUCHED" : "free");
+    printLine(line);
+  }
+}
+
+// Give the keyer the paddle states on every pass of loop(), so each dit,
+// dah and gap ends within a ms or so of its exact time. The keyer reports
+// the exact time, so the decoder and the relay get perfect timing even if
+// this pass came a few ms late.
+void runKeyer(unsigned long now) {
+  bool left = ditPad.touched();
+  bool right = dahPad.touched();
+  bool dit = paddlesSwapped ? right : left;
+  bool dah = paddlesSwapped ? left : right;
+  while (keyer.update(dit, dah, now)) updateKey(keyer.changeMs());
+}
+
+// Read the knob every KNOB_READ_MS. It also prints the raw reading whenever
+// the WPM changes, as a wiring check. Near 0 or 4095 all the time means a
+// leg is not connected, and numbers jumping all over mean the middle leg is
+// loose.
+void readKnob(unsigned long now) {
+  if (now - lastKnobReadMs < KNOB_READ_MS) return;
+  lastKnobReadMs = now;
+
+  uint16_t raw = analogRead(SPEED_KNOB_PIN);
+  if (KNOB_REVERSED) raw = SpeedKnob::ADC_MAX - raw;
+  if (!knob.update(raw)) return;
+
+  keyer.setWpm(knob.wpm());
+  char line[64];
+  snprintf(line, sizeof(line), "Speed knob raw %u, average %d, %d WPM", raw, knob.average(),
+           knob.wpm());
+  printLine(line);
+  screenChanged = true;
+}
+
+void printSettings() {
+  char line[80];
+  snprintf(line, sizeof(line), "Keyer %d WPM, mode %c, dit pad GPIO %d, dah pad GPIO %d",
+           knob.wpm(), keyer.mode() == KEYER_MODE_A ? 'A' : 'B',
+           paddlesSwapped ? DAH_PAD_PIN : DIT_PAD_PIN, paddlesSwapped ? DIT_PAD_PIN : DAH_PAD_PIN);
+  printLine(line);
+}
+
+void runCommand(const char* text) {
+  if (strcmp(text, "a") == 0) {
+    keyer.setMode(KEYER_MODE_A);
+  } else if (strcmp(text, "b") == 0) {
+    keyer.setMode(KEYER_MODE_B);
+  } else if (strcmp(text, "swap") == 0) {
+    paddlesSwapped = !paddlesSwapped;
+  } else if (strcmp(text, "t") == 0) {
+    touchMonitor = !touchMonitor;
+    if (touchMonitor) {
+      // The limits first, so each live reading can be compared with them.
+      if (lineHasText) {
+        Serial.println();
+        lineHasText = false;
+      }
+      printPadLevels("left", DIT_PAD_PIN, ditPad);
+      printPadLevels("right", DAH_PAD_PIN, dahPad);
+      lastTouchPrintMs = millis() - TOUCH_MONITOR_MS;  // first line straight away
+    } else {
+      printLine("Touch monitor off");
+    }
+    return;
+  } else if (strcmp(text, "?") != 0) {
+    printLine("Commands: a (mode A), b (mode B), swap (swap the pads), t (touch monitor on or off), ? (settings)");
+    return;
+  }
+  printSettings();
+  screenChanged = true;
+}
+
+// Collect typed letters until Enter. Serial.available() says how many
+// letters are already waiting, so this never waits for more.
+void readSerialCommands() {
+  while (Serial.available() > 0) {
+    char c = (char)Serial.read();
+    if (c == '\r' || c == '\n') {
+      if (commandLength > 0) {
+        command[commandLength] = '\0';
+        runCommand(command);
+        commandLength = 0;
+      }
+    } else if (commandLength < (int)sizeof(command) - 1) {
+      command[commandLength++] = (char)tolower(c);
+    }
   }
 }
 
@@ -468,6 +646,11 @@ void setup() {
   networkBegin();
   calibrateTouch();
 
+  keyer.setMode(KEYER_MODE_AT_START);
+  readKnob(millis());  // prints the first knob reading and sets the speed
+  printSettings();
+  printLine("Type a, b, swap, t or ? and press Enter");
+
   // The DAC starts at 0 V, but silence is the middle level, 128. Jumping
   // straight there would thump the speaker once, so slide up over 0.5 s.
   for (int level = 0; level <= DAC_MID; level++) {
@@ -505,12 +688,16 @@ void loop() {
   }
 
   readTouch(now);
+  runKeyer(now);
+  readKnob(now);
+  readSerialCommands();
 
   // While the key is up, tell the decoder how long the gap is so far, so a
-  // letter prints as soon as the gap reaches LETTER_GAP_MS, without waiting for
-  // the next press. Only when both inputs are steady, because during a
-  // bounce or a touch that is still being confirmed the gap may already be over.
-  if (settled && !touchKey.changing() && !keyDown) {
+  // letter prints as soon as the gap reaches its limit, without waiting for
+  // the next press. Only when the button is steady, because during a bounce
+  // the gap may already be over. The keyer needs no such check: it starts a
+  // press at the moment it sees the paddle, never earlier.
+  if (settled && !keyDown) {
     reportDecoded(decoder.keyUp(now - keyUpStartMs));
 
     // A long pause ends the line, but never prints empty lines.

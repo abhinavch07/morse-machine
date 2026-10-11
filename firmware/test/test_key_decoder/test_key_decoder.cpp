@@ -200,6 +200,22 @@ void test_current_code_grows_then_clears() {
   TEST_ASSERT_EQUAL_STRING("-", d.currentCode());
 }
 
+// Paddle limits at 25 WPM (unit 48 ms): split 96, letter gap 96, word gap
+// 336. With the straight key limits the 144 ms dah would read as a dit and
+// the 96 ms gap would not end the letter.
+void test_set_limits_for_keyer() {
+  KeyDecoder d = makeDecoder();
+  d.setLimits(96, 96, 336);
+  d.keyDown(144);  // dah
+  TEST_ASSERT_FALSE(d.keyUp(48).letterDone);
+  d.keyDown(48);   // dit
+  DecodeResult r = d.keyUp(96);
+  TEST_ASSERT_TRUE(r.letterDone);
+  TEST_ASSERT_EQUAL_STRING("N", r.letter);
+  TEST_ASSERT_FALSE(r.wordDone);
+  TEST_ASSERT_TRUE(d.keyUp(336).wordDone);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_k);
@@ -215,5 +231,6 @@ int main() {
   RUN_TEST(test_unknown_code_is_star);
   RUN_TEST(test_too_many_presses_is_star);
   RUN_TEST(test_current_code_grows_then_clears);
+  RUN_TEST(test_set_limits_for_keyer);
   return UNITY_END();
 }

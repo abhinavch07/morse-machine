@@ -11,6 +11,12 @@ KeyDecoder::KeyDecoder(float ditDahSplitMs, float letterGapMs, float wordGapMs)
   code[0] = '\0';
 }
 
+void KeyDecoder::setLimits(float ditDahSplitMs, float letterGapMs, float wordGapMs) {
+  this->ditDahSplitMs = ditDahSplitMs;
+  this->letterGapMs = letterGapMs;
+  this->wordGapMs = wordGapMs;
+}
+
 void KeyDecoder::keyDown(float ms) {
   // Too many presses for any real code. Keep counting so the letter still
   // comes out as unknown, but do not write past the end of the buffer.

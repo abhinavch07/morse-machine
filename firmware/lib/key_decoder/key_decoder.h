@@ -28,6 +28,11 @@ class KeyDecoder {
   // wordGapMs:     a gap this long or longer ends the word.
   KeyDecoder(float ditDahSplitMs, float letterGapMs, float wordGapMs);
 
+  // Change the three limits, for example when keying moves from the straight
+  // key to the paddle, or the keyer speed changes. A letter in progress
+  // keeps its dits and dahs.
+  void setLimits(float ditDahSplitMs, float letterGapMs, float wordGapMs);
+
   // Adds a dit or a dah to the letter.
   void keyDown(float ms);
 

@@ -204,3 +204,38 @@ Right board, left half (columns a to e):
 - Network status on the OLED title line: "no WiFi", "WiFi only" (on WiFi,
   relay not connected) or "RELAY ok".
 
+
+### Touch paddle and speed knob (Phase 4, from 2026-10-11)
+- Touch paddle: the GPIO 32 pad (T9) is now the dit paddle, left, for the
+  thumb. It is no longer a straight key. A new pad on GPIO 33 (T8) is the
+  dah paddle, right, for the index finger. Both use the same TouchKey code
+  and limits as the Phase 2 touch key.
+- Both pads are calibrated together in the 2 seconds after reset. Do not
+  touch either pad then. Serial prints each pad's levels.
+- The button on GPIO 27 stays a straight key. Button and paddle feed the
+  same key line.
+- Speed knob: 10k potentiometer, middle leg on GPIO 34 (ADC1, works with
+  WiFi), outer legs on 3.3 V and GND. Never on 5 V, the ADC pin takes at
+  most 3.3 V. Read every 10 ms, 8 to 25 WPM.
+- Wiring check without a multimeter: serial prints "Speed knob raw ...,
+  average ..., N WPM" at start up and at every WPM change. Turning the knob
+  end to end should go from near 0 to near 4095. Stuck near 0 or 4095 means
+  an outer leg is off. Numbers jumping around with the knob still means the
+  middle leg is loose. If the knob turns the wrong way, set KNOB_REVERSED.
+- Serial commands (type, then Enter): a = mode A, b = mode B, swap = swap
+  the pads, ? = print the settings. They reset at every start.
+- t turns the touch monitor on or off: both pads' raw readings and
+  touched or free, once a second, after printing each pad's limits.
+- Two pads that calibrate to the same level (within 1 count) print a
+  warning at start up. That usually means GPIO 32 and GPIO 33 are connected
+  together, for example in the same breadboard row.
+
+### Wiring faults found in the Phase 4 board test (2026-10-11)
+- Speed knob read 0 all the time: its GND leg was not really on GND.
+  Fixed by moving it to the left board GND row, hole not recorded yet. Some
+  breadboard rails are split in the middle, with a gap in the printed
+  line. The two halves are not connected unless you add a jumper across.
+- Dah paddle keyed by itself, and both pads showed exactly the same
+  calibration level: GPIO 32 and GPIO 33 were joined on the board. Fixed by
+  separating them. The t touch monitor and the start up warning now catch
+  this.

@@ -717,3 +717,74 @@ Next:
 - Consider the .local name in RELAY_HOST, so an IP change needs no upload.
 - Phase 4 when asked: the iambic paddle and keyer.
 
+
+## 2026-10-11 Phase 4, session 1: iambic keyer, touch paddle and speed knob
+
+Built:
+- lib/iambic_keyer: a pure C++ iambic keyer with no Arduino code. It takes
+  dit and dah paddle states and the time, and gives exact key down and key
+  up times. 1 unit = 1200 / WPM. Dit and dah memory, Mode A and Mode B
+  (Mode A at start). A speed change starts at the next element. If loop()
+  is late, the reported times are still exact and no change is lost.
+- test/test_keyer: 19 native tests at 15 WPM. Dit 80 ms and dah 240 ms,
+  holding one paddle, squeeze starting with dit and with dah, C by squeeze
+  in Mode A and in Mode B, dit memory (K), dah memory (A), a tap in the gap,
+  Mode A gives A and Mode B gives R from the same hands, speed change, late
+  update and the millis() wrap.
+- lib/speed_knob: average of 16 readings without the highest and lowest,
+  a WPM change only when the average moves more than 40 counts, mapped to
+  8 to 25 WPM in equal steps. 6 native tests.
+- key_decoder: new setLimits(). The straight key keeps its limits (160,
+  250, 2500 ms). The paddle uses 2 units for the dit/dah split, 2 units for
+  the letter gap and 7 units for the word gap, from the keyer WPM. Limits
+  switch at each key down, after the gap before it has been judged. 1 new
+  test.
+- main.cpp: two touch pads (GPIO 32 dit, GPIO 33 dah), calibrated together
+  with the Phase 2 code. The keyer runs on every pass of loop(), and its
+  output and the button are ORed into the same key line, so sidetone, LEDs,
+  decoder, OLED and relay events work as before. The knob is read every
+  10 ms. Serial commands a, b, swap, t and ?, read without waiting. The
+  OLED title shows speed and mode, like "15wpm A" ("15wpm A sw" when
+  swapped). No delay() in loop().
+- Touch monitor: the serial command t prints each pad's limits, then both
+  raw readings with touched or free once a second, until t again. It
+  replaces the fixed DEBUG_TOUCH setting.
+- A start up warning when both pads calibrate within 1 count of each other.
+- platformio.ini: monitor_echo = yes, so typed commands show.
+- All 104 native tests pass. The ESP32 build passes (flash 76.1%, RAM 16.3%).
+
+Board test, two wiring faults found and fixed:
+- The knob read 0 all the time. Its GND leg was not really on GND. Moved
+  to the left board GND row, hole not recorded yet. Some breadboard rails are split
+  in the middle, so one half of a rail can be unconnected.
+- The dah pad keyed dahs by itself, and both pads calibrated to exactly the
+  same level (87.2 and 87.2, then 87.5 and 87.5). GPIO 32 and GPIO 33 were
+  joined on the board. Fixed by separating them. Before that, the code was
+  checked: each pad has its own TouchKey, its own touchRead() and its own
+  limits, and ESP-IDF swaps back the chip's swapped T8 and T9 registers, so
+  each pin reads its own channel.
+
+Board test passed at 15 WPM:
+- K and C by squeeze in Mode A. The same squeeze gives A in Mode A and R in
+  Mode B.
+- The knob goes from 8 to 25 WPM.
+- The push button still works as a straight key.
+- The browser receives the keying over the relay.
+
+Learned:
+- An iambic keyer is a small state machine: send an element, wait 1 unit,
+  then decide what comes next from the paddles and the memory.
+- Mode A and Mode B differ only at that decision, when both paddles were
+  squeezed and then let go: Mode B adds one opposite element.
+- Working out each time from the time before, instead of reading the clock,
+  keeps the rhythm exact even when loop() is busy.
+- A plain average lets one wild ADC reading through. Leaving out the
+  highest and lowest reading stops that.
+- Two real pads always differ a little. Exactly equal numbers mean they
+  are probably connected together.
+- A reading stuck at 0 or 4095 on the knob means a leg is not connected.
+  Serial prints can stand in for a broken multimeter.
+
+Next:
+- Design and build the DIY dual lever paddle, then check it sends clean
+  characters at 15 WPM, the Phase 4 done check.
