@@ -191,3 +191,16 @@ Right board, left half (columns a to e):
   the button works as before.
 - Calibration at that test: no touch level 78.6, touched below 51.1, released above 62.9.
 
+### WiFi (Phase 3, from 2026-10-11)
+- No new wiring. The ESP32's own WiFi joins the home network (2.4 GHz only).
+- WiFi power saving is switched off in the firmware (WiFi.setSleep(false)),
+  so received key events are not held back. This adds about 100 mA, and
+  WiFi sending can briefly take 250 mA or more. Still well inside the USB
+  budget, but with WiFi and a loud speaker together, a weak USB cable or
+  port is more likely to cause a reset. Keep the volume moderate.
+- Touch and WiFi: the radio can add noise to touch readings. WiFi now starts
+  before the touch calibration, so the no touch level is measured with the
+  radio on. To be checked on the board with DEBUG_TOUCH.
+- Network status on the OLED title line: "no WiFi", "WiFi only" (on WiFi,
+  relay not connected) or "RELAY ok".
+

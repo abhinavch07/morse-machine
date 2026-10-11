@@ -98,6 +98,19 @@ void test_new_line_skips_empty_lines() {
   TEST_ASSERT_EQUAL_STRING("", s.line(2));
 }
 
+void test_two_row_area_scrolls() {
+  ScreenText s(2);
+  type(s, "ONE");
+  s.newLine();
+  type(s, "TWO");
+  s.newLine();
+  type(s, "THREE");
+  TEST_ASSERT_EQUAL(2, s.rows());
+  TEST_ASSERT_EQUAL_STRING("TWO", s.line(0));
+  TEST_ASSERT_EQUAL_STRING("THREE", s.line(1));
+  TEST_ASSERT_EQUAL_STRING("", s.line(2));  // outside the area
+}
+
 void test_spaced_code() {
   char out[20];
   TEST_ASSERT_EQUAL_STRING(". - .", spacedCode(".-.", out));
@@ -116,6 +129,7 @@ int main() {
   RUN_TEST(test_prosign_is_not_split);
   RUN_TEST(test_scrolls_to_keep_newest_lines);
   RUN_TEST(test_new_line_skips_empty_lines);
+  RUN_TEST(test_two_row_area_scrolls);
   RUN_TEST(test_spaced_code);
   return UNITY_END();
 }

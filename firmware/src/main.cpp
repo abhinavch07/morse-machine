@@ -1,19 +1,27 @@
-// Phase 2, Session 2, Step 16: touch key on GPIO 32 (touch channel T9).
-// While the button on GPIO 27 is held or the foil pad on GPIO 32 is touched, a 600 Hz tone with a 5 ms fade in and
-// fade out plays on GPIO 25 (DAC1), and both LEDs are on. The press and gap
-// times go to the decoder. Letters print on one line as they are decoded, a
-// word gap prints a space, and 5 seconds with no presses ends the line.
-// The SH1106 OLED shows the same text, plus the dits and dahs of the letter
-// being keyed now.
+// Phase 3, Session 3: the ESP32 joins the relay over WiFi.
+// While the button on GPIO 27 is held or the foil pad on GPIO 32 is touched,
+// a 600 Hz tone with a 5 ms fade in and fade out plays on GPIO 25 (DAC1), and
+// both LEDs are on. The press and gap times go to the decoder. Letters print
+// on one line as they are decoded, a word gap prints a space, and 5 seconds
+// with no presses ends the line.
+// Each press and release is also sent to the relay. Key events from other
+// devices play at 700 Hz, 200 ms after they were sent, and are decoded too.
+// The SH1106 OLED shows my text, the received text, the network status and
+// the dits and dahs of the letter being keyed now.
+// The network runs in its own task (network.cpp), so keying never waits for it.
 
 #include <Arduino.h>
 #include <soc/rtc_io_reg.h>
 #include <U8g2lib.h>
 #include <key_decoder.h>
 #include <morse.h>
+#include <playout.h>
 #include <screen_text.h>
 #include <sidetone.h>
 #include <touch_key.h>
+#include <string.h>
+
+#include "network.h"
 
 // Pins, from the pin map in CLAUDE.md and docs/hardware-notes.md
 const int ONBOARD_LED_PIN = 2;           // the blue LED built into the DevKit V1
@@ -31,6 +39,7 @@ const uint32_t OLED_BUS_HZ = 400000;     // 400 kHz "fast mode" I2C
 
 // Sidetone, from the timing spec in CLAUDE.md
 const float SIDETONE_HZ = 600;
+const float REMOTE_TONE_HZ = 700;        // other devices, so I can tell them from me
 const float RAMP_MS = 5;                 // fade in and fade out, stops clicks
 
 // Tone colour: TONE_SOFT (pure sine), TONE_BRIGHT or TONE_SHARP.
@@ -80,6 +89,11 @@ const bool DEBUG_TIMING = false;
 const bool DEBUG_TOUCH = false;
 const unsigned long DEBUG_TOUCH_MS = 100;
 
+// Print one line for every key event sent to or received from the relay.
+// Each line ends the current line of decoded letters, so set this to false
+// for clean decoded text.
+const bool DEBUG_EVENTS = true;
+
 // Kept for sendText(), which is not used right now but will be later.
 const float WPM = 5;
 const char* MESSAGE = "VU";
@@ -106,17 +120,26 @@ unsigned long lastTouchPrintMs = 0;
 // The screen. F means the whole picture is kept in a 1 KB buffer in RAM, so
 // we can draw it all at once and then send it to the screen in pieces.
 U8G2_SH1106_128X64_NONAME_F_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE, OLED_SCL_PIN, OLED_SDA_PIN);
-ScreenText screenText;
+ScreenText myText(2);                    // what I key, 2 lines
+ScreenText receivedText(2);              // what others key, 2 lines
+char lastReceivedFrom[MAX_SENDER_NAME + 1] = "";  // sender of the last received letter
+NetStatus shownStatus = NET_NO_WIFI;     // network status on the screen now
 bool screenChanged = true;               // draw once at start up
+
+// Key events from other devices: when to play them, and their decoded text.
+RemoteKeys remoteKeys(DIT_DAH_SPLIT_MS, LETTER_GAP_MS, WORD_GAP_MS);
 int nextPage = -1;                       // next 8 pixel row to send, -1 when idle
 
-// The only thing loop() and the timer interrupt both touch. volatile tells
-// the compiler it can change at any moment, so it must read it fresh every time.
-volatile bool toneOn = false;
+// The only things loop() and the timer interrupt both touch. volatile tells
+// the compiler they can change at any moment, so it must read them fresh
+// every time.
+volatile bool toneOn = false;            // my key
+volatile bool remoteToneOn = false;      // any other device's key
 
 // Set up once in setup() before the timer starts, then used only by the
-// interrupt, so it does not need to be volatile. As a global it lives in RAM.
-SidetoneGenerator sidetone;
+// interrupt, so they do not need to be volatile. As globals they live in RAM.
+SidetoneGenerator sidetone;              // 600 Hz, my key
+SidetoneGenerator remoteTone;            // 700 Hz, other devices
 hw_timer_t* sampleTimer = nullptr;
 
 // Put a value straight into the DAC1 output register: 8 bits starting at
@@ -128,8 +151,16 @@ inline void IRAM_ATTR writeDac1(uint8_t value) {
 
 // Runs 40,000 times a second, in between whatever loop() is doing. It must be
 // short and use whole numbers only, so all the maths is in the tables.
+// Both tones are mixed by adding their swings around the middle level. My
+// own tone wins: while my key is down the remote tone fades out. The two
+// fades are mirror images, so together they never go past full scale.
 void IRAM_ATTR onSampleTimer() {
-  writeDac1(sidetone.nextSample(toneOn));
+  int mine = sidetone.nextSample(toneOn) - DAC_MID;
+  int theirs = remoteTone.nextSample(remoteToneOn && !toneOn) - DAC_MID;
+  int level = DAC_MID + mine + theirs;
+  if (level < 0) level = 0;
+  if (level > 255) level = 255;
+  writeDac1((uint8_t)level);
 }
 
 // Runs on every rising or falling edge of the key pin. It only notes the time.
@@ -178,9 +209,27 @@ void printDecoded(const DecodeResult& r) {
 
 // Same as printDecoded(), but for the screen.
 void showDecoded(const DecodeResult& r) {
-  if (r.letterDone) screenText.addLetter(r.letter);
-  if (r.wordDone) screenText.addSpace();
+  if (r.letterDone) myText.addLetter(r.letter);
+  if (r.wordDone) myText.addSpace();
   if (r.letterDone || r.wordDone) screenChanged = true;
+}
+
+// A letter or word gap from another device. When the sender changes, start a
+// new line with their first letter, like "p:" for phone.
+void showReceived(const Received& got) {
+  bool sameSender = strcmp(got.sender, lastReceivedFrom) == 0;
+  if (got.result.letterDone) {
+    if (!sameSender) {
+      receivedText.newLine();
+      char label[3] = {got.sender[0], ':', '\0'};
+      receivedText.addLetter(label);
+      strncpy(lastReceivedFrom, got.sender, MAX_SENDER_NAME);
+    }
+    receivedText.addLetter(got.result.letter);
+  } else if (got.result.wordDone && sameSender) {
+    receivedText.addSpace();
+  }
+  screenChanged = true;
 }
 
 void reportDecoded(const DecodeResult& r) {
@@ -193,15 +242,23 @@ void reportDecoded(const DecodeResult& r) {
 void drawScreen() {
   oled.clearBuffer();
 
-  // Top: a small title and a line under it.
+  // Top: a small title, the network status on the right, and a line under.
   oled.setFont(u8g2_font_5x7_tr);
   oled.drawStr(0, 7, "MORSE");
+  const char* status = shownStatus == NET_RELAY ? "RELAY ok"
+                       : shownStatus == NET_WIFI ? "WiFi only"
+                                                 : "no WiFi";
+  oled.drawStr(128 - oled.getStrWidth(status), 7, status);
   oled.drawHLine(0, 9, 128);
 
-  // Middle: four lines of decoded text, 10 pixels apart.
+  // Two lines of my text, a line, two lines of received text, 10 pixels apart.
   oled.setFont(u8g2_font_6x10_tr);
-  for (int row = 0; row < ScreenText::ROWS; row++) {
-    oled.drawStr(0, 20 + row * 10, screenText.line(row));
+  for (int row = 0; row < myText.rows(); row++) {
+    oled.drawStr(0, 19 + row * 10, myText.line(row));
+  }
+  oled.drawHLine(0, 31, 128);
+  for (int row = 0; row < receivedText.rows(); row++) {
+    oled.drawStr(0, 41 + row * 10, receivedText.line(row));
   }
 
   // Bottom: a line, then the dits and dahs of the letter being keyed now.
@@ -241,16 +298,21 @@ void printScreenTiming() {
   Serial.printf("oled full %lu us, one page %lu us\n", fullUs, pageUs);
 }
 
-// One debug line like "down 85". Debug lines go on their own line, so if a
-// letter is waiting on the current line, end that line first.
-void printDebug(const char* label, unsigned long value) {
+// One line of its own, like "relay connected". If decoded letters are
+// waiting on the current line, end that line first.
+void printLine(const char* text) {
   if (lineHasText) {
     Serial.println();
     lineHasText = false;
   }
-  Serial.print(label);
-  Serial.print(' ');
-  Serial.println(value);
+  Serial.println(text);
+}
+
+// One debug line like "down 85".
+void printDebug(const char* label, unsigned long value) {
+  char line[48];
+  snprintf(line, sizeof(line), "%s %lu", label, value);
+  printLine(line);
 }
 
 void printTiming(const char* label, unsigned long ms) {
@@ -294,6 +356,13 @@ void updateKey(unsigned long atMs) {
   keyDown = down;
   setLeds(keyDown);
   setSidetone(keyDown);
+
+  // Send it with the time it really happened. If the relay is not connected
+  // the event is dropped, and everything else here carries on as normal.
+  if (networkSend(keyDown, atMs) && DEBUG_EVENTS) {
+    printDebug(keyDown ? "send down" : "send up", atMs);
+  }
+
   if (keyDown) {
     reportDecoded(decoder.keyUp(atMs - keyUpStartMs));  // the gap just ended
     printTiming("up", atMs - keyUpStartMs);
@@ -317,6 +386,34 @@ void readTouch(unsigned long now) {
   if (DEBUG_TOUCH && now - lastTouchPrintMs >= DEBUG_TOUCH_MS) {
     lastTouchPrintMs = now;
     printDebug("touch", raw);
+  }
+}
+
+// Everything from the network task: status lines for serial, key events
+// from others, and the status shown on the screen. None of it waits.
+void handleNetwork(unsigned long now) {
+  char line[64];
+  while (networkLogLine(line, sizeof(line))) printLine(line);
+
+  KeyEvent event;
+  while (networkReceive(&event)) {
+    PlayTime time = remoteKeys.receive(event, now);
+    if (DEBUG_EVENTS) {
+      snprintf(line, sizeof(line), "recv %s %s %lu, plays in %ld ms%s", event.from,
+               event.down ? "down" : "up", (unsigned long)event.t,
+               (long)(int32_t)(time.playAt - now), time.reset ? ", delay reset" : "");
+      printLine(line);
+    }
+  }
+
+  Received got;
+  while (remoteKeys.update(now, &got)) showReceived(got);
+  remoteToneOn = remoteKeys.toneOn(now);
+
+  NetStatus status = networkStatus();
+  if (status != shownStatus) {
+    shownStatus = status;
+    screenChanged = true;
   }
 }
 
@@ -364,6 +461,11 @@ void setup() {
   oled.begin();
   drawScreen();
   printScreenTiming();
+
+  // WiFi starts joining in the background now, so the touch calibration
+  // below measures the pad with the radio already running, as it will be
+  // in use. WiFi can add noise to touch readings.
+  networkBegin();
   calibrateTouch();
 
   // The DAC starts at 0 V, but silence is the middle level, 128. Jumping
@@ -375,6 +477,7 @@ void setup() {
 
   // Builds the wave table once, here, never inside the interrupt.
   sidetone.begin(SIDETONE_HZ, SAMPLE_RATE_HZ, RAMP_MS, TONE_PRESET);
+  remoteTone.begin(REMOTE_TONE_HZ, SAMPLE_RATE_HZ, RAMP_MS, TONE_PRESET);
   sampleTimer = timerBegin(SAMPLE_TIMER, TIMER_DIVIDER, true);
   timerAttachInterrupt(sampleTimer, &onSampleTimer, false);  // false: level, the only kind this core supports
   timerAlarmWrite(sampleTimer, TIMER_TICKS, true);  // true: repeat forever
@@ -414,10 +517,11 @@ void loop() {
     if (lineHasText && now - keyUpStartMs >= NEW_LINE_MS) {
       Serial.println();
       lineHasText = false;
-      screenText.newLine();
+      myText.newLine();
       screenChanged = true;
     }
   }
 
+  handleNetwork(now);
   updateScreen();
 }

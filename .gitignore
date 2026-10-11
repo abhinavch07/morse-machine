@@ -16,3 +16,6 @@ data/
 
 # PlatformIO build output
 .pio/
+
+# WiFi password and relay address for the ESP32. Only secrets.example.h is committed.
+firmware/include/secrets.h

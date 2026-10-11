@@ -649,3 +649,71 @@ Next:
 - ESP32 joins the relay over WiFi. Keep the WiFi password out of the public
   repo.
 - Morse practice: LCWO Lesson 3 (adds R).
+
+## 2026-10-11 Phase 3, session 3: the ESP32 joins the relay
+
+Built:
+- Secrets: firmware/include/secrets.h holds WIFI_SSID, WIFI_PASSWORD,
+  RELAY_HOST and RELAY_PORT. It is in .gitignore, checked with
+  git check-ignore and git status. Only secrets.example.h, with blank
+  values, is committed. With no WiFi name the firmware runs as before,
+  with the network off.
+- Libraries: links2004/WebSockets 2.7.3 (the most used Arduino WebSocket
+  client, with reconnect and heartbeat) and ArduinoJson 7.4.3.
+- src/network.cpp: WiFi and the relay run in their own FreeRTOS task on
+  core 0. loop() on core 1 talks to it only through queues and never waits.
+  The library's connect can block for 5 seconds when the Mac is off, which
+  is why it cannot run in loop(). Reconnect every 3 seconds. A RELAY_HOST
+  ending in ".local" is looked up with mDNS, and looked up again after 10
+  seconds without the relay, in case the Mac's IP changed. A ping every 15
+  seconds notices a relay that went away without closing. WiFi power
+  saving is off, so received events are not delayed.
+- lib/key_event: builds and reads {"type":"down","t":12345,"from":"esp32"},
+  the same JSON as the web page. 7 native tests.
+- lib/playout: the same playout rules as web/morse.js. 200 ms delay per
+  sender from their own t values, reset when late or far ahead, 2 second
+  stuck key cut, up to 4 senders, decoding from the sender's t values.
+  13 native tests, including the JS playout cases, uneven network delays,
+  two senders at once, and the millis() wrap after 49 days.
+- lib/relay_host: decides how to find the relay from RELAY_HOST. Four
+  numbers from 0 to 255 like "192.168.0.188" are used directly with no
+  lookup, a name ending in ".local" is looked up with mDNS, and any other
+  name with normal DNS. 5 native tests, including near misses like
+  "192.168.0.256" and "192.168.0". secrets.example.h shows both forms.
+- Sidetone: a second generator at 700 Hz for received keying, mixed in the
+  timer interrupt. My own tone wins: the remote tone fades out while my key
+  is down.
+- OLED: title line with the network status, 2 lines of my text, 2 lines of
+  received text (a new sender's text starts with their first letter, like
+  "p:"), then the code being keyed. ScreenText now takes a row count.
+- Serial: one line each for WiFi connected, relay found, relay connected and
+  relay disconnected. With DEBUG_EVENTS (on for now) one line per event
+  sent or received.
+- All 78 native tests pass. The ESP32 build passes, also with test values in
+  secrets.h, both a .local name and a plain IP (flash 75.6%, RAM 16.2%).
+- Board test passed, using a plain IP in RELAY_HOST: WiFi and the relay
+  connect, the ESP32 sends to the browser from both the button and the
+  touch pad, the browser plays on the ESP32 at 700 Hz with my own tone
+  winning, keying carries on with the relay off and the ESP32 reconnects
+  when it comes back, and the touch pad stays clean with WiFi busy.
+- The Mac's IP changed three times in one day (.188, .169, .160), so
+  RELAY_HOST must match what the relay prints. Noted in setup-notes.md.
+
+Learned:
+- The ESP32 has two cores. Giving the network its own task on the other
+  core keeps the key and sidetone free from network waits.
+- Queues are the safe way for two tasks to pass data. Neither side waits,
+  and nothing is half written.
+- A password in code ends up in git history forever, so it lives in a
+  file git ignores, with a blank example copy committed instead.
+- With a blank WiFi name, the compiler removed all the WiFi code as
+  unreachable, so the first build looked far too small. A build with test
+  values showed the true size.
+- Macs announce a .local name with Bonjour (mDNS), so devices at home can
+  find the Mac even when its IP changes.
+
+Next:
+- Phase 3 is done: an ESP32 and a browser exchange Morse in real time.
+- Consider the .local name in RELAY_HOST, so an IP change needs no upload.
+- Phase 4 when asked: the iambic paddle and keyer.
+

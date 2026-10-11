@@ -7,9 +7,10 @@
 class ScreenText {
  public:
   static const int COLS = 21;  // 128 px wide / 6 px per letter
-  static const int ROWS = 4;   // lines of decoded text on the screen
+  static const int ROWS = 4;   // the most lines one ScreenText can hold
 
-  ScreenText();
+  // rows: how many lines this text area shows, 1 to ROWS.
+  explicit ScreenText(int rows = ROWS);
 
   // Adds one decoded letter: "K", a prosign like "<AR>", or "*". If the line
   // is full, the word being written moves down to a new line, so words are
@@ -24,14 +25,17 @@ class ScreenText {
   // nothing if the current line is still empty.
   void newLine();
 
-  // The text of one line, 0 is the top. When the screen is full the oldest
+  // The text of one line, 0 is the top. When the area is full the oldest
   // line scrolls off the top.
   const char* line(int row) const;
+
+  int rows() const { return rows_; }
 
  private:
   void startLine();
 
   char lines_[ROWS][COLS + 1];  // plus the end marker
+  int rows_;                    // lines in use, 1 to ROWS
   int current_;                 // the row being written now
 };
 

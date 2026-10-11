@@ -41,3 +41,33 @@ Then open:
 
 Tap Start on each device. On an iPhone, switch off the silent switch, or the
 page makes no sound.
+
+## The ESP32 on the relay
+The ESP32 needs the WiFi name and password and the Mac's name. They live in
+`firmware/include/secrets.h`, which git ignores, so the password never
+reaches the public repo. Only `secrets.example.h`, with blank values, is
+committed.
+
+1. If `secrets.h` is missing, copy `secrets.example.h` to `secrets.h` in
+   the same folder.
+2. Fill in `WIFI_SSID` and `WIFI_PASSWORD`. The ESP32 only joins 2.4 GHz
+   WiFi, not 5 GHz.
+3. Set `RELAY_HOST` in one of two forms:
+   - A plain IP like `"192.168.0.188"`, as the relay prints it at start up.
+     It is used directly, with no lookup. If the router gives the Mac a new
+     IP, edit it and upload again.
+   - The Mac's Bonjour name with `.local` on the end:
+     `"Akritis-MacBook-Pro.local"`. It is looked up each time, so it keeps
+     working when the IP changes. It is shown in System Settings, General,
+     Sharing, Local hostname, or with `scutil --get LocalHostName`.
+   - With the IP form, `RELAY_HOST` must match the IP the relay prints at
+     start up (`Relay ready. Connect to ws://...`). On 2026-10-11 the Mac's
+     IP changed three times in one day (.188, .169, .160). When the OLED
+     stays on "WiFi only", compare the two first. The `.local` form avoids
+     this.
+4. Before committing, check that git cannot see the secrets:
+   `git check-ignore -v firmware/include/secrets.h` must print the
+   `.gitignore` line, and `git status` must not list `secrets.h`.
+
+The ESP32 prints one serial line for each step: WiFi connected (with its own
+IP), the relay's IP it found, relay connected, and relay disconnected.

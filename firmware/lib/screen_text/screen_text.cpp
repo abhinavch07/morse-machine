@@ -2,7 +2,8 @@
 
 #include <string.h>
 
-ScreenText::ScreenText() : current_(0) {
+ScreenText::ScreenText(int rows)
+    : rows_(rows < 1 ? 1 : (rows > ROWS ? ROWS : rows)), current_(0) {
   for (int i = 0; i < ROWS; i++) lines_[i][0] = '\0';
 }
 
@@ -47,16 +48,16 @@ void ScreenText::newLine() {
 }
 
 const char* ScreenText::line(int row) const {
-  if (row < 0 || row >= ROWS) return "";
+  if (row < 0 || row >= rows_) return "";
   return lines_[row];
 }
 
 void ScreenText::startLine() {
-  if (current_ < ROWS - 1) {
+  if (current_ < rows_ - 1) {
     current_++;
   } else {
     // Full: move every line up one and forget the top one.
-    for (int i = 0; i < ROWS - 1; i++) strcpy(lines_[i], lines_[i + 1]);
+    for (int i = 0; i < rows_ - 1; i++) strcpy(lines_[i], lines_[i + 1]);
   }
   lines_[current_][0] = '\0';
 }
