@@ -786,5 +786,8 @@ Learned:
   Serial prints can stand in for a broken multimeter.
 
 Next:
-- Design and build the DIY dual lever paddle, then check it sends clean
-  characters at 15 WPM, the Phase 4 done check.
+- Phase 4 is done: the touch paddle sends clean, well timed characters at
+  15 WPM, which passes the Phase 4 done check.
+- The DIY dual lever paddle is parked for later, with the other soldering
+  work (the microswitch straight key and the hacksaw blade key).
+- Phase 5 next: the receive side and the tone decoder.
